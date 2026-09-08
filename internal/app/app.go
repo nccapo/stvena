@@ -29,6 +29,9 @@ import (
 
 const diffRefresh = 700 * time.Millisecond
 
+// Version is replaced with the release version at build time.
+var Version = "dev"
+
 type outputEvent struct{ data []byte }
 type diffEvent struct{ snapshot, session, project diffview.Snapshot }
 type operationEvent struct {
@@ -54,6 +57,10 @@ type contentEvent struct {
 
 // Run starts the requested agent command. With no arguments it runs Codex.
 func Run(args []string) error {
+	if len(args) == 1 && args[0] == "--version" {
+		fmt.Fprintln(os.Stdout, "stvena "+Version)
+		return nil
+	}
 	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
 		fmt.Fprintln(os.Stdout, "Usage: stvena [--] [command [args...]]\n       stvena review [--session ID]\n       stvena sessions\n\nDefault command: codex. Ctrl-G switches panes (agent/workspace), preserving the open file; a opens Actions.\nCtrl-Q closes stvena and stops the running command. Ctrl-C interrupts the command.\nReview stays open after the command exits. q closes review.\nRun inside the repository you want to review.")
 		return nil

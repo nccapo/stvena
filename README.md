@@ -8,7 +8,7 @@ https://github.com/user-attachments/assets/7aecafe5-1e45-442e-ab49-82cfc3750d9f
 
 [![CI](https://github.com/nccapo/stvena/actions/workflows/ci.yml/badge.svg)](https://github.com/nccapo/stvena/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Go 1.24.2+](https://img.shields.io/badge/Go-1.24.2%2B-00ADD8.svg)](go.mod)
+[![Latest release](https://img.shields.io/github/v/release/nccapo/stvena)](https://github.com/nccapo/stvena/releases/latest)
 
 Stvena runs your coding agent beside a live code review workspace. Keep the
 agent's native terminal experience while you inspect changes, read complete
@@ -32,35 +32,64 @@ Built in Go. Designed for terminal workflows with Codex and Claude Code.
   of a captured version, inspect logs, and jump from recognized failures to source.
 - **Stage deliberately.** Stage or unstage files and hunks with confirmation.
 
-## Quick start
+## Installation
 
-You need **Go 1.24.2 or newer**, **Git**, an interactive terminal, and your chosen
-agent CLI installed and authenticated. Stvena uses Unix PTYs and process groups;
-macOS and Linux are the intended platforms. Native Windows is not supported.
+You need **Git**, an interactive terminal, and your chosen agent CLI installed
+and authenticated. Stvena uses Unix PTYs and process groups; macOS and Linux are
+the intended platforms. Native Windows is not supported.
+
+### Prebuilt binary (recommended)
+
+No Go installation is required:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/nccapo/stvena/main/install.sh | sh
+```
+
+The installer downloads the correct macOS or Linux release for your machine,
+verifies it against the published SHA-256 checksums, and installs it in an
+existing writable binary directory or `$HOME/.local/bin`.
+
+| Operating system | Architectures |
+| --- | --- |
+| macOS | Intel (`amd64`), Apple Silicon (`arm64`) |
+| Linux | `amd64`, `arm64` |
+
+Run the same command again to upgrade to the latest release. Check the installed
+version with `stvena --version`.
+
+To choose the installation directory or install a specific release:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/nccapo/stvena/main/install.sh | \
+  STVENA_INSTALL_DIR="$HOME/.local/bin" STVENA_VERSION=v0.1.0 sh
+```
+
+Homebrew is not required. A dedicated Homebrew tap is not published yet, so the
+verified installer is currently the shortest supported installation path.
+
+### Install with Go or build from source
+
+These options require Go 1.24.2 or newer:
 
 ```sh
 go install github.com/nccapo/stvena/cmd/stvena@latest
-cd /path/to/your/project
-stvena                    # Starts Codex
-stvena claude             # Starts Claude Code
-```
 
-Make sure Go's binary directory (`go env GOBIN`, or `$(go env GOPATH)/bin` when
-GOBIN is empty) is on your `PATH`.
-
-Or build from source:
-
-```sh
 git clone https://github.com/nccapo/stvena.git
 cd stvena
 go build -o bin/stvena ./cmd/stvena
 ./bin/stvena --help
 ```
 
+## Quick start
+
 Launch Stvena **inside the Git project you want to work on**. You can pass an
 agent command and its arguments after `--`, or reopen a saved review:
 
 ```sh
+cd /path/to/your/project
+stvena                    # Starts Codex
+stvena claude             # Starts Claude Code
 stvena -- codex --model YOUR_MODEL
 stvena review
 stvena sessions
@@ -139,6 +168,10 @@ go test -race ./...
 go vet ./...
 go build ./...
 ```
+
+Maintainers publish the prebuilt archives and checksums by pushing a semantic
+version tag. See [Publish a release](CONTRIBUTING.md#publish-a-release) for the
+release command and verification steps.
 
 | Package | Responsibility |
 | --- | --- |

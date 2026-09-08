@@ -1,0 +1,39 @@
+version: 2
+
+project_name: stvena
+
+builds:
+  - id: stvena
+    main: ./cmd/stvena
+    binary: stvena
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X github.com/nccapo/stvena/internal/app.Version={{ .Version }}
+
+archives:
+  - id: stvena
+    ids:
+      - stvena
+    formats:
+      - tar.gz
+    name_template: "stvena_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+
+release:
+  prerelease: auto
