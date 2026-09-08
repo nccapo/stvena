@@ -3,7 +3,7 @@
 **Your coding agent. Your changes. One terminal.**
 
 <!-- demo:start -->
-<!-- Paste the GitHub-hosted MP4 attachment URL here, on its own line. -->
+https://github.com/user-attachments/assets/7aecafe5-1e45-442e-ab49-82cfc3750d9f
 <!-- demo:end -->
 
 [![CI](https://github.com/nccapo/stvena/actions/workflows/ci.yml/badge.svg)](https://github.com/nccapo/stvena/actions/workflows/ci.yml)
