@@ -1,0 +1,47 @@
+# Local credentials and environment files
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+secrets.json
+.secrets/
+.aws/
+.ssh/
+
+# Local agent configuration and conversation state
+.codex/
+.claude/
+.agents/
+.stvena/
+.agentpane/
+
+# Build output, test reports, and profiling data
+/bin/
+/dist/
+/stvena
+/agentpane
+*.test
+*.out
+*.prof
+coverage.*
+*.log
+
+# Local recordings: publish a reviewed demo as a GitHub attachment
+*.mp4
+*.mov
+*.webm
+
+# Editor and OS files
+.DS_Store
+._*
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.cache/
