@@ -11,6 +11,9 @@ type reviewControl struct{ key, label string }
 
 func reviewControls(s *review.State) []reviewControl {
 	controls := baseReviewControls(s)
+	if s.Checkpoint != nil {
+		return append([]reviewControl{{"Z", "Z: Finish checkpoint"}, {"P", "P: Resume live"}}, controls...)
+	}
 	if s.Pinned && !s.Selecting {
 		controls = append([]reviewControl{{"P", "P: Resume live"}}, controls...)
 	}
@@ -135,7 +138,12 @@ func selectionSummary(s *review.State) string {
 
 func panelControls(s *review.State) []reviewControl {
 	switch s.Panel {
+	case "Checkpoint draft":
+		return []reviewControl{{"b", "b: Paste / export"}, {"y", "y: Copy"}, {"i", "i: Request"}, {"esc", "Esc: Review"}}
 	case "Context":
+		if s.Checkpoint != nil {
+			return []reviewControl{{"Z", "Z: Finish checkpoint"}, {"i", "i: Request"}, {"d", "d: Remove"}, {"esc", "Esc: Back"}}
+		}
 		return []reviewControl{{"enter", "Enter: Preview"}, {"i", "i: Request"}, {"d", "d: Remove"}, {"b", "b: Paste"}, {"esc", "Esc: Back"}}
 	case "Context preview":
 		return []reviewControl{{"b", "b: Paste to agent"}, {"y", "y: Copy"}, {"esc", "Esc: Tray"}}

@@ -134,6 +134,27 @@ The code viewer provides:
 
 ## Review an evolving change
 
+After the agent edits `api.go` and `api_test.go`, press **Ctrl-G**, then choose
+**Actions → Review checkpoint** (**K**). The current captured session tree stays
+pinned while you use **Space** / **H** to mark files / hunks and **N** to find the
+next unreviewed file. Select an exact range in each file, use **c** to comment or
+**x** to collect code, and optionally add your request in **B**, then **i**.
+The header counts reviewed files/hunks, saved comments and tray selections;
+**NEW LIVE** means a newer capture exists and has not been reviewed.
+Choose **Finish checkpoint** (**Z**) to preview the combined draft. If review is
+incomplete, **Esc** returns to review; **Enter** previews anyway. In the preview,
+**b** prepares one Codex/Claude Code input without pressing Enter; standalone
+review copies it instead, and **y** always copies. Return with **Esc**, then
+**P** to resume live and review changed items again. Closing and reopening a
+saved review preserves the pinned checkpoint, marks, feedback and draft.
+
+Checkpoint drafts include comments anchored to that checkpoint tree and all
+items currently in the existing context tray, including their original paths,
+line ranges, code and versions. Remove unwanted tray items with **B**, then
+**d** before finishing. Source switching, history comparisons and tested-source
+navigation require resuming live first, so they cannot replace checkpoint code.
+The assembled draft has the same 32 KiB limit as context handoffs.
+
 **P** pins the displayed version while the agent keeps running. An update badge
 shows when newer changes arrive; P resumes live updates. Full-file content stays
 on the pinned version too.
@@ -270,6 +291,7 @@ There are no discard, restore, commit, push or branch-editing actions.
 | [ / ] | Previous / next hunk or full-file change |
 | h/l, ←/→ / 0 | Horizontal scroll / reset horizontal offset |
 | P / R | Pin or resume live / compare since review |
+| K / Z | Start Review checkpoint / finish and preview the assembled draft |
 | Space / H | Mark file / hunk reviewed |
 | b | Paste selected code, or the assembled draft while in Context |
 | x / B | Collect selected code / open the saved context tray |
@@ -285,7 +307,7 @@ unchanged except for the reserved Ctrl-G focus and Ctrl-Q quit keys.
 
 ## Local storage and limits
 
-Session metadata, comments, review marks, context attachments, draft requests,
+Session metadata, pinned checkpoints, comments, review marks, context attachments, draft requests,
 preferences and the latest check result
 are stored under the OS user cache directory in `stvena/<repository hash>`.
 Private `refs/stvena/sessions/*` and `refs/stvena/reviews/*` retain Git objects

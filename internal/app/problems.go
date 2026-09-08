@@ -123,6 +123,10 @@ func (s *screenState) applyProblem(e problemEvent) {
 	if s.review.Panel != "Problems" {
 		return
 	}
+	if s.review.Checkpoint != nil {
+		s.review.Notice = "Checkpoint stays pinned · P: resume live to open tested source"
+		return
+	}
 	// Keep the tested tree visible even when the live working copy is newer.
 	s.review.Pinned = false
 	s.review.Scope = 0

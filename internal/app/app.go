@@ -171,7 +171,7 @@ func Run(args []string) error {
 		return fmt.Errorf("enable raw terminal: %w", err)
 	}
 	defer func() {
-		_, _ = io.WriteString(os.Stdout, "\x1b[?1000l\x1b[?1002l\x1b[?1006l\x1b[0m\x1b[?25h\x1b[?1049l")
+		_, _ = io.WriteString(os.Stdout, ansi.ResetModeBracketedPaste+"\x1b[?1000l\x1b[?1002l\x1b[?1006l\x1b[0m\x1b[?25h\x1b[?1049l")
 		_ = term.Restore(int(os.Stdin.Fd()), oldState)
 	}()
 	_, _ = io.WriteString(os.Stdout, "\x1b[?1049h\x1b[2J\x1b[H")
@@ -188,11 +188,13 @@ func Run(args []string) error {
 		EnableMode: func(mode ansi.Mode) {
 			if mode == ansi.ModeBracketedPaste {
 				state.bracketedPaste = true
+				_, _ = io.WriteString(os.Stdout, ansi.SetModeBracketedPaste)
 			}
 		},
 		DisableMode: func(mode ansi.Mode) {
 			if mode == ansi.ModeBracketedPaste {
 				state.bracketedPaste = false
+				_, _ = io.WriteString(os.Stdout, ansi.ResetModeBracketedPaste)
 			}
 		},
 	})
@@ -451,6 +453,9 @@ type screenState struct {
 	agentInput                          io.Writer
 	bracketedPaste, pastePending        bool
 	pasteInput                          []byte
+	terminalPasting                     bool
+	terminalPasteToAgent                bool
+	terminalPasteMarker                 int
 	mouseDragging                       bool
 }
 
@@ -463,19 +468,61 @@ func (s *screenState) visibleLines() int {
 	return lines
 }
 func (s *screenState) handleInput(data []byte, child io.Writer) {
-	// Closing the app must also work while a paste is waiting for the CLI.
-	for _, b := range data {
+	if s.pastePending {
+		// Closing the app must also work while a handoff waits for the CLI.
+		for _, b := range data {
+			if b == 0x11 {
+				s.review.Request = "quit-app"
+				s.pending, s.pasteInput = nil, nil
+				return
+			}
+		}
+		s.pasteInput = append(s.pasteInput, data...)
+		return
+	}
+	// Preserve input chunks: byte-sized PTY writes make large pastes look like
+	// prolonged typing and force the child to redraw for individual characters.
+	forward := make([]byte, 0, len(data))
+	defer func() {
+		if len(forward) > 0 {
+			_, _ = child.Write(forward)
+		}
+	}()
+	for i, b := range data {
+		// Markers can straddle any stdin read. Once a paste starts, its bytes
+		// belong to the original pane, including newlines and app shortcuts.
+		wasPasting := s.terminalPasting
+		marker := ansi.BracketedPasteStart
+		if wasPasting {
+			marker = ansi.BracketedPasteEnd
+		}
+		if b == marker[s.terminalPasteMarker] {
+			s.terminalPasteMarker++
+		} else {
+			s.terminalPasteMarker = 0
+			if b == marker[0] {
+				s.terminalPasteMarker = 1
+			}
+		}
+		if s.terminalPasteMarker == len(marker) {
+			s.terminalPasteMarker = 0
+			s.terminalPasting = !wasPasting
+			if !wasPasting {
+				s.terminalPasteToAgent = !s.diffFocused
+				s.pending = nil
+			}
+		}
+		if wasPasting || s.terminalPasting {
+			if s.terminalPasteToAgent {
+				forward = append(forward, b)
+			}
+			continue
+		}
 		if b == 0x11 {
 			s.review.Request = "quit-app"
 			s.pending, s.pasteInput = nil, nil
 			return
 		}
-	}
-	if s.pastePending {
-		s.pasteInput = append(s.pasteInput, data...)
-		return
-	}
-	for i, b := range data {
 		if b == 0x07 { // Switch focus without discarding the open file or selection.
 			s.pending = nil
 			s.mouseDragging = false
@@ -499,13 +546,13 @@ func (s *screenState) handleInput(data []byte, child io.Writer) {
 				}
 				s.review.AgentDraft = false
 			}
-			_, _ = child.Write([]byte{b})
+			forward = append(forward, b)
 			continue
 		}
 		s.pending = append(s.pending, b)
 		s.lastInput = time.Now()
 		s.decodeInput(false)
-		if s.review.Request == "paste-agent" || s.review.Request == "paste-context" {
+		if s.review.Request == "paste-agent" || s.review.Request == "paste-context" || s.review.Request == "paste-checkpoint" {
 			s.pasteInput = append(s.pasteInput, data[i+1:]...)
 			return
 		}
@@ -593,7 +640,7 @@ func readPTY(ptmx *os.File, events chan<- any, stop <-chan struct{}) {
 }
 
 func readInput(events chan<- any) {
-	buffer := make([]byte, 256)
+	buffer := make([]byte, 4096)
 	for {
 		n, err := os.Stdin.Read(buffer)
 		if n > 0 {

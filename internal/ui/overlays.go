@@ -14,6 +14,10 @@ func renderOverlay(s *review.State, width, height int) []string {
 	case s.ConfirmAction != "":
 		title = "Confirm Git action"
 		content = []string{"", safeText(s.ConfirmDetail), "", "Enter confirms · Esc cancels", "", "Only the staging index will change."}
+		if s.ConfirmAction == "finish-checkpoint" {
+			title = "Finish checkpoint · review incomplete"
+			content = []string{"", safeText(s.ConfirmDetail), "", "Esc: return to review", "Enter: preview draft anyway", "", "Previewing does not submit anything to the agent."}
+		}
 	case s.Prompt != "":
 		title = s.Prompt
 		content = []string{"", cyan + horizontalText(safeText(s.Input), max(0, ansiWidth(safeText(s.Input))-max(1, width-4))) + "▏", "", "Enter: submit · Esc: cancel"}
@@ -101,6 +105,18 @@ func renderOverlay(s *review.State, width, height int) []string {
 			content = []string{err.Error()}
 		} else {
 			for _, line := range strings.Split(message, "\n") {
+				content = append(content, strings.Split(ansi.Hardwrap(safeText(line), max(1, width-2), true), "\n")...)
+			}
+		}
+	case s.Panel == "Checkpoint draft":
+		title = "Review checkpoint · draft preview"
+		if s.CheckpointNewer() {
+			title += " · NEW LIVE"
+		}
+		footer = " b: paste / export · y: copy · Esc: return to review"
+		if s.Checkpoint != nil {
+			content = []string{"b prepares agent input without submitting.", "Standalone review copies the draft instead.", "P resumes live after returning to review.", ""}
+			for _, line := range strings.Split(s.Checkpoint.Draft, "\n") {
 				content = append(content, strings.Split(ansi.Hardwrap(safeText(line), max(1, width-2), true), "\n")...)
 			}
 		}

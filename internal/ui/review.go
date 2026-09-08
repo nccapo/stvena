@@ -41,7 +41,10 @@ func renderReview(s *review.State, width, height int, focused bool) []string {
 	if s.Snapshot.FileCount == 1 {
 		noun = "file"
 	}
-	if s.Source == "project" {
+	if s.Checkpoint != nil {
+		f, tf, h, th := s.CheckpointProgress()
+		add(bg + bold + fmt.Sprintf(" Checkpoint · %d/%d files · %d/%d hunks", f, tf, h, th))
+	} else if s.Source == "project" {
 		add(bg + bold + fmt.Sprintf(" Project · %d %s", s.Snapshot.FileCount, noun) + reset + muted + "  /: find file")
 	} else {
 		add(bg + bold + fmt.Sprintf(" %d %s  %s+%d -%d", s.Snapshot.FileCount, noun, approx, s.Snapshot.Added, s.Snapshot.Deleted) + reset + bg + "  " + safeText(s.Snapshot.Branch))
@@ -84,7 +87,16 @@ func renderReview(s *review.State, width, height int, focused bool) []string {
 		if s.Source != "session" && s.Source != "project" {
 			source += " · " + scope
 		}
-		if s.Source == "project" {
+		if s.Checkpoint != nil {
+			freshness := "live unchanged"
+			if s.CheckpointNewer() {
+				freshness = "NEW LIVE"
+			}
+			if s.Latest.Tree == "" && !s.CheckpointNewer() {
+				freshness = "checking live…"
+			}
+			add(cyan + fmt.Sprintf(" Pinned · %s · %d comments · %d selections", freshness, len(s.CheckpointComments()), len(s.Attachments)))
+		} else if s.Source == "project" {
 			add(cyan + " " + source + filter)
 		} else {
 			add(cyan + " " + source + fmt.Sprintf(" · %d/%d reviewed", s.ReviewedCount(), len(s.Snapshot.Files)) + filter)

@@ -120,6 +120,28 @@ func (s *screenState) dispatch(ctx context.Context, events chan<- any, stop <-ch
 		}
 	}
 	switch r {
+	case "checkpoint":
+		if err := s.review.StartCheckpoint(s.sessionView); err != nil {
+			s.review.Notice = err.Error()
+		}
+	case "paste-checkpoint", "copy-checkpoint":
+		if s.review.Checkpoint == nil || s.review.Checkpoint.Draft == "" {
+			s.review.Notice = "Finish the checkpoint to preview its draft first"
+			break
+		}
+		if r == "paste-checkpoint" && !s.exited && s.agentInput != nil && s.agentName != "" {
+			s.pasteToAgent(events, stop)
+			return false
+		}
+		// Standalone reviews and unsupported commands use the existing clipboard.
+		// Keep the draft open even if the clipboard is unavailable.
+		s.pasteInput = nil
+		value := s.review.Checkpoint.Draft
+		s.workers.Add(1)
+		go func() {
+			defer s.workers.Done()
+			send("Checkpoint draft copied · paste and submit when ready · P: resume live", copyText(value))
+		}()
 	case "quit-app":
 		return true
 	case "paste-agent", "paste-context":
@@ -141,6 +163,10 @@ func (s *screenState) dispatch(ctx context.Context, events chan<- any, stop <-ch
 		}
 		s.relayout(s.layout.Width, s.layout.Height)
 	case "1", "2", "3":
+		if s.review.Checkpoint != nil {
+			s.review.Notice = "Checkpoint stays pinned · Z: finish · P: resume live before switching sources"
+			break
+		}
 		if r == "1" && s.session == nil {
 			s.review.Notice = "No session baseline available"
 			break
@@ -197,6 +223,10 @@ func (s *screenState) dispatch(ctx context.Context, events chan<- any, stop <-ch
 		s.workers.Add(1)
 		go func() { defer s.workers.Done(); send("Opened working file in editor", openEditor(path, n)) }()
 	case "since-review":
+		if s.review.Checkpoint != nil {
+			s.review.Notice = "Checkpoint stays pinned · P: resume live before comparing history"
+			break
+		}
 		f := s.review.Current()
 		if f == nil {
 			break
@@ -229,6 +259,10 @@ func (s *screenState) dispatch(ctx context.Context, events chan<- any, stop <-ch
 		s.review.Scroll = 0
 		s.review.Notice = "Changes since last review · P returns to live"
 	case "problem-open", "problem-add":
+		if r == "problem-open" && s.review.Checkpoint != nil {
+			s.review.Notice = "Checkpoint stays pinned · x: collect failure · P: resume live to open tested source"
+			break
+		}
 		s.loadProblem(r == "problem-add", events, stop)
 	case "check":
 		if s.review.CheckRunning {

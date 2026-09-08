@@ -164,3 +164,59 @@ func TestPasteFailureKeepsSelectionAndDoesNotRetry(t *testing.T) {
 		t.Fatal("partial paste was hidden or retried")
 	}
 }
+
+type countedInput struct {
+	bytes.Buffer
+	writes int
+}
+
+func (w *countedInput) Write(p []byte) (int, error) {
+	w.writes++
+	return w.Buffer.Write(p)
+}
+
+func TestLargeTerminalPasteIsLiteralAndDeliveredOnce(t *testing.T) {
+	message := strings.Repeat("Explain this code: 目录\n\r\x07\x11\x1b[A\x1b[20x\n", 2048)
+	payload := ansi.BracketedPasteStart + message + ansi.BracketedPasteEnd
+	for _, chunkSize := range []int{1, 5, 256, 4096, len(payload)} {
+		t.Run(strconv.Itoa(chunkSize), func(t *testing.T) {
+			s := screenState{layout: ui.NewLayout(140, 40)}
+			s.review.AgentDraft = true
+			var child countedInput
+			chunks := 0
+			for offset := 0; offset < len(payload); offset += chunkSize {
+				s.handleInput([]byte(payload[offset:min(offset+chunkSize, len(payload))]), &child)
+				chunks++
+			}
+			if child.String() != payload {
+				t.Fatalf("paste changed: received %d bytes, want %d", child.Len(), len(payload))
+			}
+			if s.diffFocused || s.review.Request != "" || !s.review.AgentDraft {
+				t.Fatal("paste triggered a shortcut or submitted the agent draft")
+			}
+			if child.writes > chunks {
+				t.Fatalf("paste fragmented into %d writes for %d input chunks", child.writes, chunks)
+			}
+			s.handleInput([]byte("follow-up\r\x07"), &child)
+			if child.String() != payload+"follow-up\r" || !s.diffFocused || s.review.AgentDraft {
+				t.Fatal("normal input did not resume after paste")
+			}
+		})
+	}
+}
+
+func TestTerminalPasteInReviewDoesNotRunShortcuts(t *testing.T) {
+	s := pasteState(&bytes.Buffer{})
+	var child bytes.Buffer
+	payload := ansi.BracketedPasteStart + "bq\x07\x11\r" + ansi.BracketedPasteEnd
+	for _, b := range []byte(payload) {
+		s.handleInput([]byte{b}, &child)
+	}
+	if child.Len() != 0 || s.review.Request != "" || !s.diffFocused {
+		t.Fatal("review paste ran a shortcut or leaked to the agent")
+	}
+	s.handleInput([]byte{0x11}, &child)
+	if s.review.Request != "quit-app" {
+		t.Fatal("Ctrl-Q stopped working after paste")
+	}
+}
