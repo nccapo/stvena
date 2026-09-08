@@ -4,12 +4,41 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"github.com/charmbracelet/x/vt"
+	"io"
+	"os"
 	"testing"
 
+	"github.com/charmbracelet/x/vt"
 	"github.com/nccapo/stvena/internal/diffview"
 	"github.com/nccapo/stvena/internal/ui"
 )
+
+func TestVersion(t *testing.T) {
+	oldStdout := os.Stdout
+	read, write, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = write
+	t.Cleanup(func() { os.Stdout = oldStdout })
+
+	oldVersion := Version
+	Version = "1.2.3"
+	t.Cleanup(func() { Version = oldVersion })
+	if err := Run([]string{"--version"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := write.Close(); err != nil {
+		t.Fatal(err)
+	}
+	output, err := io.ReadAll(read)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(output), "stvena 1.2.3\n"; got != want {
+		t.Fatalf("version output = %q, want %q", got, want)
+	}
+}
 
 func TestQuitAllWorksFromEitherPaneAndDuringPaste(t *testing.T) {
 	for _, mode := range []string{"agent", "review", "paste", "exited"} {

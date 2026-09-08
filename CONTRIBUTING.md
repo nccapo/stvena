@@ -47,6 +47,24 @@ gitleaks dir . --redact --no-banner
 Never commit real credentials or sensitive test fixtures. Use ordinary branch
 pushes: `git push --mirror` would also publish Stvena's local snapshot refs.
 
+## Publish a release
+
+Release builds are created for macOS and Linux on amd64 and arm64. After CI
+passes on the release commit, push a semantic version tag:
+
+```sh
+git tag -a v0.1.0 -m "Stvena v0.1.0"
+git push origin v0.1.0
+```
+
+The release workflow runs the tests, creates the GitHub release, and uploads the
+archives and checksum file consumed by `install.sh`. Test the installer against
+the new version before updating release announcements:
+
+```sh
+STVENA_VERSION=v0.1.0 STVENA_INSTALL_DIR="$(mktemp -d)" ./install.sh
+```
+
 ## Demo in the README
 
 The top of `README.md` has `demo:start` and `demo:end` markers. After reviewing
