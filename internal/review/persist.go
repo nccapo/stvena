@@ -24,6 +24,7 @@ type Record struct {
 	At   time.Time
 }
 type Saved struct {
+	Checkpoint      *Checkpoint `json:",omitempty"`
 	Reviewed        map[string][32]byte
 	Hunks           map[string]bool
 	History         map[string]Record
@@ -55,6 +56,15 @@ func (s *State) Load(root string) error {
 	}
 	s.Attachments, s.ContextQuestion = saved.Attachments, saved.ContextQuestion
 	s.reviewed, s.Hunks, s.History, s.Comments, s.LastCheck = saved.Reviewed, saved.Hunks, saved.History, saved.Comments, saved.LastCheck
+	if saved.Checkpoint != nil {
+		c := saved.Checkpoint
+		if err := s.StartCheckpoint(c.Snapshot); err != nil {
+			return err
+		}
+		s.Checkpoint = c
+		s.Latest = diffview.Snapshot{}
+		s.Notice = "Saved checkpoint reopened · Z: finish · P: resume live"
+	}
 	return nil
 }
 func (s *State) Save() error {
@@ -89,7 +99,20 @@ func (s *State) Save() error {
 			return err
 		}
 	}
-	return session.AtomicJSON(s.savePath, Saved{Reviewed: s.reviewed, Hunks: s.Hunks, History: s.History, Comments: s.Comments, LastCheck: s.LastCheck, Attachments: s.Attachments, ContextQuestion: s.ContextQuestion})
+	if s.Checkpoint != nil {
+		if err := retain(s.Checkpoint.Snapshot.Tree); err != nil {
+			return err
+		}
+		// Removed files and old-side full-file views also need their blobs retained.
+		for _, f := range s.Checkpoint.Snapshot.Files {
+			if strings.Trim(f.BeforeOID, "0") != "" {
+				if err := retain(f.BeforeOID); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return session.AtomicJSON(s.savePath, Saved{Checkpoint: s.Checkpoint, Reviewed: s.reviewed, Hunks: s.Hunks, History: s.History, Comments: s.Comments, LastCheck: s.LastCheck, Attachments: s.Attachments, ContextQuestion: s.ContextQuestion})
 }
 func (s *State) Remember(f diffview.File) {
 	if s.History == nil {

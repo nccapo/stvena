@@ -30,6 +30,7 @@ type State struct {
 	Latest                            diffview.Snapshot
 	Pinned, SideBySide, Wrap          bool
 	PinnedVersion                     string
+	Checkpoint                        *Checkpoint
 	selectionPinned                   bool
 	Menu                              bool
 	MenuIndex                         int
@@ -80,6 +81,7 @@ func (s *State) Current() *diffview.File {
 func (s *State) Update(snapshot diffview.Snapshot) {
 	s.Latest = snapshot
 	if s.Pinned {
+		s.observeCheckpoint(snapshot)
 		return
 	}
 	key := ""
@@ -107,7 +109,19 @@ func (s *State) Update(snapshot diffview.Snapshot) {
 			delete(s.reviewed, key)
 		}
 	}
-
+	// Hunk marks must not revive if changed code later returns to an old patch.
+	activeHunks := map[string]bool{}
+	for _, f := range snapshot.Files {
+		for h := range HunkRanges(f.Lines) {
+			activeHunks[HunkID(f, h)] = true
+		}
+	}
+	for id := range s.Hunks {
+		isSession := strings.HasPrefix(id, string(diffview.Session)+"\x00")
+		if (s.Source == "" || isSession == (s.Source == "session")) && !activeHunks[id] {
+			delete(s.Hunks, id)
+		}
+	}
 }
 func (s *State) filter(key string) {
 	s.Indices = nil
@@ -415,6 +429,12 @@ func (s *State) Key(key string, visible int) {
 				}
 			} else {
 				s.reviewed[f.Key()] = fingerprint(*f)
+				if s.Hunks == nil {
+					s.Hunks = map[string]bool{}
+				}
+				for h := range HunkRanges(f.Lines) {
+					s.Hunks[HunkID(*f, h)] = true
+				}
 				s.Remember(*f)
 			}
 		}

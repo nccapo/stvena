@@ -13,6 +13,8 @@ import (
 type Action struct{ Key, Name, Hint string }
 
 var Actions = []Action{
+	{"K", "Review checkpoint", "Pin current session changes and review them before the next prompt"},
+	{"Z", "Finish checkpoint", "Preview comments and collected context, then paste or copy one draft"},
 	{"v", "Diff / full file", "Read changed lines or the complete file"},
 	{"F", "Focus review", "Expand review to the full terminal"},
 	{"1", "This session", "Changes observed since the agent started"},
@@ -49,7 +51,11 @@ var Actions = []Action{
 func (s *State) AdvancedKey(key string, visible int) bool {
 	if s.ConfirmAction != "" {
 		if key == "enter" {
-			s.Request = "confirm:" + s.ConfirmAction
+			if s.ConfirmAction == "finish-checkpoint" {
+				s.FinishCheckpoint(true)
+			} else {
+				s.Request = "confirm:" + s.ConfirmAction
+			}
 			s.ConfirmAction = ""
 		} else if key == "esc" {
 			s.ConfirmAction = ""
@@ -129,7 +135,32 @@ func (s *State) AdvancedKey(key string, visible int) bool {
 		}
 		return true
 	}
+	if key == "Z" && s.Checkpoint != nil {
+		s.Panel = ""
+		s.FinishCheckpoint(false)
+		return true
+	}
 	if s.contextKey(key, visible) {
+		return true
+	}
+	if s.Panel == "Checkpoint draft" {
+		switch key {
+		case "b", "y":
+			s.Request = map[string]string{"b": "paste-checkpoint", "y": "copy-checkpoint"}[key]
+		case "i":
+			s.Panel = "Context"
+			s.Prompt, s.Input = "Context request", s.ContextQuestion
+		case "esc":
+			s.Panel, s.PanelScroll = "", 0
+		case "j", "down":
+			s.PanelScroll++
+		case "k", "up":
+			s.PanelScroll = max(0, s.PanelScroll-1)
+		case "d", "pagedown":
+			s.PanelScroll += max(1, visible/2)
+		case "u", "pageup":
+			s.PanelScroll = max(0, s.PanelScroll-max(1, visible/2))
+		}
 		return true
 	}
 	if s.Panel == "Problems" {
@@ -188,6 +219,10 @@ func (s *State) AdvancedKey(key string, visible int) bool {
 		return true
 	}
 	switch key {
+	case "K":
+		s.Request = "checkpoint"
+	case "Z":
+		s.FinishCheckpoint(false)
 	case "N":
 		if len(s.Indices) == 0 {
 			s.Notice = "No files to review in this view"
@@ -295,6 +330,11 @@ func (s *State) AdvancedKey(key string, visible int) bool {
 	case "w":
 		s.Wrap = !s.Wrap
 	case "P":
+		if s.Checkpoint != nil {
+			s.ResumeCheckpoint()
+			s.Notice = "Live updates resumed · changed versions need review again"
+			return true
+		}
 		if s.Snapshot.Tree == "" && !s.Pinned {
 			s.Notice = "Pinning needs a captured version; wait for session capture"
 			return true
@@ -327,7 +367,14 @@ func (s *State) AdvancedKey(key string, visible int) bool {
 			s.Hunks = map[string]bool{}
 		}
 		id := HunkID(*f, h)
-		s.Hunks[id] = !s.Hunks[id]
+		wasReviewed := s.HunkReviewed(*f, h)
+		if hash, ok := s.reviewed[f.Key()]; ok && hash == fingerprint(*f) {
+			for h := range hunks {
+				s.Hunks[HunkID(*f, h)] = true
+			}
+		}
+		delete(s.reviewed, f.Key())
+		s.Hunks[id] = !wasReviewed
 		s.Remember(*f)
 		s.Notice = "Hunk review updated"
 		s.Request = "save"

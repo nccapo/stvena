@@ -46,6 +46,12 @@ func (s *screenState) pasteToAgent(events chan<- any, stop <-chan struct{}) {
 	if s.review.Panel == "Context" || s.review.Panel == "Context preview" {
 		message, err = s.review.ContextMessage()
 	}
+	if s.review.Panel == "Checkpoint draft" && s.review.Checkpoint != nil {
+		message, err = s.review.Checkpoint.Draft, nil
+		if message == "" {
+			err = fmt.Errorf("Finish the checkpoint to prepare its draft first")
+		}
+	}
 	if err != nil {
 		s.review.Notice = err.Error()
 		return
@@ -84,4 +90,10 @@ func (s *screenState) finishAgentPaste(err error) {
 	s.fullscreen = false
 	s.relayout(s.layout.Width, s.layout.Height)
 	s.review.Notice = "Code pasted · add your request in the agent, then press Enter"
+	if s.review.Panel == "Checkpoint draft" && s.review.Checkpoint != nil {
+		s.review.Notice = "Checkpoint draft pasted · inspect and submit in the agent · P: resume live"
+		if err := s.review.Save(); err != nil {
+			s.review.Notice = "Save checkpoint: " + err.Error()
+		}
+	}
 }

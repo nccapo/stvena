@@ -1,6 +1,10 @@
 # Stvena
 
-**Your coding agent. Your changes. One terminal.**
+**Stop reopening your IDE just to review what your coding agent changed.**
+
+Run Codex or Claude Code beside a live review workspace in the same terminal.
+Inspect every changed file, read the surrounding code, run checks, select exact
+lines, and send that context straight back to the agent.
 
 <!-- demo:start -->
 https://github.com/user-attachments/assets/7aecafe5-1e45-442e-ab49-82cfc3750d9f
@@ -10,12 +14,11 @@ https://github.com/user-attachments/assets/7aecafe5-1e45-442e-ab49-82cfc3750d9f
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Latest release](https://img.shields.io/github/v/release/nccapo/stvena)](https://github.com/nccapo/stvena/releases/latest)
 
-Stvena runs your coding agent beside a live code review workspace. Keep the
-agent's native terminal experience while you inspect changes, read complete
-files, collect context, and run checks against the code you are reviewing.
-
 Built in Go. Designed for terminal workflows with Codex and Claude Code.
 **Early-stage software:** interfaces and local storage formats may change.
+
+If Stvena saves you from the "open the IDE just for the diff" loop, consider
+[starring the repository](https://github.com/nccapo/stvena).
 
 ## Why Stvena?
 
@@ -123,6 +126,7 @@ but direct selection paste is supported for Codex and Claude Code.
 | **Drag / V** | Select code with mouse / keyboard |
 | **b / x / B** | Paste selection / collect selection / open context |
 | **P** | Pin the displayed version or resume live updates |
+| **K / Z** | Start Review checkpoint / finish and preview its draft |
 | **Space / N** | Mark file reviewed / next unreviewed file |
 | **t / T** | Run a check / inspect results |
 | **a / ?** | Actions menu / keyboard help |
@@ -131,6 +135,15 @@ Review shortcuts apply when review has focus. **Ctrl-C** keeps the agent's
 native interrupt behavior. Review remains open after the agent exits; **q**
 closes it. See the [complete user guide](docs/usage.md) for comments, hunk staging,
 search, clipboard tools, and every shortcut.
+
+For a review pause, switch panes with **Ctrl-G**, then choose **Actions → Review
+checkpoint** (**K**) after the agent changes files. Stvena pins the captured
+session tree. Use **Space/H** to review files/hunks, **N** for the next unreviewed
+file, and **c** or **x** to save exact-line comments or selections across files.
+**Finish checkpoint** (**Z**) warns about remaining work and previews one draft;
+**b** pastes it into Codex/Claude Code without submitting, or copies it in
+standalone review. **P** resumes live; changed items need review again. An open
+checkpoint and its feedback survive reopening a saved review.
 
 ## Privacy and local data
 
