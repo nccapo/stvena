@@ -232,10 +232,13 @@ func (s *State) AdvancedKey(key string, visible int) bool {
 		}
 		if s.Selecting {
 			s.ClearSelection()
+			s.Notice = ""
+			return true
 		} else {
 			s.Selecting = true
 			if !s.Pinned {
 				s.Pinned = true
+				s.selectionPinned = true
 				s.PinnedVersion = s.Snapshot.Version
 				s.Latest = s.Snapshot
 			}
@@ -298,6 +301,7 @@ func (s *State) AdvancedKey(key string, visible int) bool {
 		}
 		if s.Pinned {
 			s.Pinned = false
+			s.ClearSelection()
 			s.Update(s.Latest)
 			s.Notice = "Live updates resumed"
 		} else {
@@ -513,7 +517,15 @@ func (s *State) MoveLine(delta int) {
 	}
 }
 
-func (s *State) ClearSelection() { s.Selecting = false; s.SelectionMouse = false; s.SelectionSide = 0 }
+func (s *State) ClearSelection() {
+	s.Selecting, s.SelectionMouse, s.SelectionSide = false, false, 0
+	resume := s.selectionPinned && s.Pinned
+	s.selectionPinned = false
+	if resume {
+		s.Pinned = false
+		s.Update(s.Latest)
+	}
+}
 func (s *State) SelectionIncludes(index int, line NumberedLine) bool {
 	a, b := s.Scroll, s.Scroll
 	if s.SelectionMouse {
@@ -543,6 +555,7 @@ func (s *State) SelectWithMouse(index int, side byte, extend bool) {
 	s.Browser = false
 	if !s.Pinned {
 		s.Pinned = true
+		s.selectionPinned = true
 		s.PinnedVersion = s.Snapshot.Version
 		s.Latest = s.Snapshot
 	}

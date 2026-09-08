@@ -10,6 +10,14 @@ import (
 type reviewControl struct{ key, label string }
 
 func reviewControls(s *review.State) []reviewControl {
+	controls := baseReviewControls(s)
+	if s.Pinned && !s.Selecting {
+		controls = append([]reviewControl{{"P", "P: Resume live"}}, controls...)
+	}
+	return controls
+}
+
+func baseReviewControls(s *review.State) []reviewControl {
 	if s.Source == "project" && s.Browser {
 		label := "Enter: Open"
 		if s.ProjectFolderSelected() {

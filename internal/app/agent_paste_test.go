@@ -123,6 +123,33 @@ func TestPasteUnavailableDoesNotWriteToChild(t *testing.T) {
 	}
 }
 
+func TestSubmittingAgentDraftResumesSelectionUpdates(t *testing.T) {
+	for _, explicitPin := range []bool{false, true} {
+		var input bytes.Buffer
+		s := pasteState(&input)
+		if explicitPin {
+			s.review.Key("P", 10)
+		}
+		s.review.SelectWithMouse(2, 0, false)
+		old := s.review.Snapshot.Tree
+		latest := s.review.Snapshot
+		latest.Tree = strings.Repeat("b", 40)
+		s.review.Update(latest)
+		s.finishAgentPaste(nil)
+		s.handleInput([]byte("Explain this\r"), &input)
+		if s.review.Selecting || s.review.AgentDraft || s.review.Pinned != explicitPin {
+			t.Fatalf("explicitPin=%t: draft submission did not release only the selection pin", explicitPin)
+		}
+		want := latest.Tree
+		if explicitPin {
+			want = old
+		}
+		if s.review.Snapshot.Tree != want {
+			t.Fatal("draft submission displayed the wrong version")
+		}
+	}
+}
+
 type failedPaste struct{}
 
 func (failedPaste) Write(p []byte) (int, error) { return len(p) / 2, errors.New("closed PTY") }

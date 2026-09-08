@@ -176,11 +176,16 @@ rows select their original line; side-by-side drags stay on the starting side.
 Scroll the code pane with the wheel to reach more lines while selecting, or
 Shift-click to extend a selection if your terminal forwards Shift-click. Release
 outside the pane ends the drag without activating another control. **V** clears
-the selection.
+the selection and resumes live updates. Leaving the selection to browse files or
+switch between Changes and Full file also resumes updates. A version explicitly
+pinned with **P** stays pinned until you choose **Resume live**.
 
 While selecting, the pane shows the selected range and bottom controls for
 **Add to agent**, **Copy**, **Clear**, and **Resume live**. Adding to the agent
 prepares a draft; you still type your question and send it in the native CLI.
+Submitting that draft with Enter releases the selection's temporary pin, so
+the agent's next edits appear automatically. Until then, you can return to the
+same selection and add more code to the draft.
 
 Keyboard selection still works: move to the first source line, press **V**, then
 use arrows to extend the range. You can also paste the current source line

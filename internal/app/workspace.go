@@ -217,6 +217,7 @@ func (s *screenState) dispatch(ctx context.Context, events chan<- any, stop <-ch
 		snapshot.Finish()
 		latest := s.review.Latest
 		s.review.Pinned = false
+		s.review.ClearSelection()
 		s.review.Scope = 0
 		s.review.Update(snapshot)
 		s.review.Latest = latest

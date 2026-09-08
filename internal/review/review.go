@@ -30,6 +30,7 @@ type State struct {
 	Latest                            diffview.Snapshot
 	Pinned, SideBySide, Wrap          bool
 	PinnedVersion                     string
+	selectionPinned                   bool
 	Menu                              bool
 	MenuIndex                         int
 	Prompt, Input, Notice, Request    string
@@ -183,12 +184,18 @@ func (s *State) Clamp(visible int) {
 
 // Key accepts a decoded key or a Unicode character; no keys mutate Git/files.
 func (s *State) Key(key string, visible int) {
+	if s.Selecting && !s.Menu && s.Prompt == "" && s.Panel == "" && !s.Help && !s.Searching {
+		switch key {
+		case "f", "esc", "backspace", "n", "p", "v", "s", "view-file", "view-diff":
+			s.ClearSelection()
+		}
+	}
 	if s.SelectionMouse && !s.Menu && s.Prompt == "" && s.Panel == "" && !s.Help && !s.Searching {
 		switch key {
 		case "up", "down", "j", "k", "pageup", "pagedown", "d", "u", "g", "G", "home", "end", "[", "]":
 			s.Scroll = s.SelectionEnd
 			s.ClearSelection()
-		case "v", "s", "w", "f", "backspace", "n", "p", "tab", "1", "2", "P", "R", "esc", ":", "/":
+		case "v", "s", "w", "f", "backspace", "n", "p", "tab", "1", "2", "R", "esc", ":", "/":
 			s.ClearSelection()
 		}
 	}

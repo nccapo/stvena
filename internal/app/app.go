@@ -494,6 +494,9 @@ func (s *screenState) handleInput(data []byte, child io.Writer) {
 		}
 		if !s.diffFocused {
 			if b == '\r' || b == '\n' {
+				if s.review.AgentDraft {
+					s.review.ClearSelection()
+				}
 				s.review.AgentDraft = false
 			}
 			_, _ = child.Write([]byte{b})
