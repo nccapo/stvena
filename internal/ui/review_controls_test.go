@@ -47,3 +47,14 @@ func TestReviewControlsMatchVisibleLabelsAndYieldToErrors(t *testing.T) {
 		t.Fatal("selection hid the snapshot error")
 	}
 }
+
+func TestPinnedViewOffersResumeWithoutSelection(t *testing.T) {
+	for _, browser := range []bool{false, true} {
+		s := review.State{Pinned: true, Browser: browser}
+		s.Snapshot = diffview.Snapshot{Tree: "captured"}
+		rows := renderReview(&s, 35, 20, true)
+		if !strings.Contains(ansi.Strip(rows[19]), "P: Resume live") || ReviewControlKeyAt(&s, 35, 20, 4, 19) != "P" {
+			t.Fatalf("browser=%t: pinned view has no visible resume control", browser)
+		}
+	}
+}
