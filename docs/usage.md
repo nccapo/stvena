@@ -27,8 +27,9 @@ The bottom of the review pane adapts to browsing, reading or selecting code;
 additional tools remain in **Actions** without filling the toolbar.
 **Ctrl-G** switches between the agent and your open file, preserving the view
 and selection so you can paste another slice. **Ctrl-Q** closes stvena and
-stops the running agent from either pane. **Ctrl-C** keeps its native agent
-interrupt behavior. Review stays open when the agent finishes; **q** closes it.
+stops all running agents from either pane. **Ctrl-C** keeps its native agent
+interrupt behavior. Review stays open when an agent finishes; **q** closes it
+once all agents finish.
 
 While the agent is running with no changes to show, the review pane displays an
 stvena logo, a gently pulsing status dot, and a quick guide to the controls.
@@ -43,6 +44,39 @@ stvena review --session ID     # Compare that baseline with today's workspace
 Standalone review opens fullscreen and continues observing the working copy.
 It does not resume an agent conversation. Starting outside Git still launches
 the CLI; the pane detects a later `git init`, with basic workspace review.
+
+## Multiple agent terminals
+
+Press **Ctrl-]** from either pane to choose a command for a new terminal:
+**c** starts Codex, **l** starts Claude Code, and **Enter** repeats the original
+launch command with all its arguments. You can also use **↑/↓**, then **Enter**,
+or click an option. **Esc** cancels and returns to the previous pane.
+
+For example, start `stvena codex`, then press **Ctrl-]**, **l** to run Claude Code
+in a second terminal alongside Codex. Each new terminal starts in the original
+working directory. The Codex and Claude Code options use the CLI defaults and
+require that CLI on `PATH`; arguments from the original command only apply when
+you choose **Launch command**. A failed launch leaves the chooser open so you can
+choose another command or cancel.
+
+**Ctrl-N** selects the next terminal;
+**Ctrl-P** selects the previous one, wrapping around at either end. The header
+shows the active command and terminal number. These controls are also clickable
+in the footer while review has focus.
+
+**Ctrl-W** closes the current agent terminal, stops its command, and selects the
+previous terminal (wrapping around). Closing the last terminal leaves the review
+workspace open; **Ctrl-]** starts a new agent, and **q** exits.
+
+Each terminal keeps its own screen, conversation and unfinished input. Background
+agents keep running; switching brings the selected agent into focus. Review code
+handoffs go to the selected agent. Finished terminals remain available to inspect.
+**Ctrl-C** interrupts the focused agent; **Ctrl-Q** stops all agents and exits.
+
+All agent terminals share the working directory and one review workspace and
+session baseline. Changes from every agent appear together in review. These are
+live terminals, not saved conversations; reopening review does not restart them.
+The terminal shortcuts are unavailable in standalone `stvena review`.
 
 ## Browse project files before prompting
 
@@ -274,7 +308,10 @@ There are no discard, restore, commit, push or branch-editing actions.
 | Key | Action |
 | --- | --- |
 | Ctrl-G | Switch panes (agent / workspace), preserving the open file and selection |
-| Ctrl-Q | Close stvena and stop the running agent from either pane |
+| Ctrl-] | Choose Codex, Claude Code, or the launch command for a new terminal |
+| Ctrl-N / Ctrl-P | Switch to the next / previous agent terminal |
+| Ctrl-W | Close current agent terminal and stop its command |
+| Ctrl-Q | Close stvena and stop all running agents from either pane |
 | Ctrl-C | Native interrupt while the agent has focus |
 | a | Open searchable-by-shortcut Actions menu |
 | ↑/↓, j/k | Select file or move through code |
@@ -300,10 +337,11 @@ There are no discard, restore, commit, push or branch-editing actions.
 | t / T | Run checks / view results |
 | S / A | Stage or unstage file / hunk, with confirmation |
 | ? / Esc | Help / close current overlay or return to files |
-| q | Quit after the agent exits, or quit standalone review |
+| q | Quit after all agents exit, or quit standalone review |
 
 Review shortcuts are dimmed while the agent has focus. Agent input passes through
-unchanged except for the reserved Ctrl-G focus and Ctrl-Q quit keys.
+unchanged except for the reserved Ctrl-G, Ctrl-], Ctrl-N, Ctrl-P, Ctrl-W and Ctrl-Q keys.
+Shortcuts inside a bracketed paste are treated as literal pasted text.
 
 ## Local storage and limits
 

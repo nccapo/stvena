@@ -73,7 +73,7 @@ func TestRenderFitsTinyAndWideTerminals(t *testing.T) {
 		layout := NewLayout(size[0], size[1])
 		terminal := vt.NewEmulator(layout.LeftWidth, layout.LeftHeight)
 		var out strings.Builder
-		Render(&out, terminal, &review.State{}, layout, true, true)
+		Render(&out, terminal, &review.State{}, layout, true, true, nil)
 		if out.Len() == 0 {
 			t.Fatal("empty render")
 		}
@@ -111,7 +111,7 @@ func TestAgentRGBAndStylesSurviveFrameRendering(t *testing.T) {
 		t.Fatal("text attributes lost before render")
 	}
 	var frame strings.Builder
-	Render(&frame, agent, &review.State{}, layout, false, true)
+	Render(&frame, agent, &review.State{}, layout, false, true, nil)
 	display := vt.NewEmulator(layout.Width, layout.Height)
 	_, _ = display.Write([]byte(frame.String()))
 	for y := 0; y < 3; y++ {

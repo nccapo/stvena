@@ -55,6 +55,7 @@ type State struct {
 	ProblemIndex                      int
 	CheckSourceChanged                bool
 	CheckCommand                      string
+	AgentLabel                        string
 	AgentStatus                       string
 	AgentDraft                        bool
 	WelcomeFrame                      int

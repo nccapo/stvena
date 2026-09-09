@@ -148,10 +148,10 @@ func (s *screenState) dispatch(ctx context.Context, events chan<- any, stop <-ch
 		s.pasteToAgent(events, stop)
 		return false
 	case "quit":
-		if s.exited {
+		if !s.agentsRunning() {
 			return true
 		}
-		s.review.Notice = "Agent is still running · Ctrl-Q closes stvena and stops the agent"
+		s.review.Notice = "An agent is still running · Ctrl-Q closes stvena and stops all agents"
 	case "fullscreen":
 		s.fullscreen = !s.fullscreen
 		s.relayout(s.layout.Width, s.layout.Height)
