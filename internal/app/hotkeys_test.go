@@ -105,7 +105,7 @@ func TestHotkeySaveFailureKeepsBindingAndReportsError(t *testing.T) {
 func TestConfiguredHotkeysSurviveCtrlQAndReopen(t *testing.T) {
 	for _, mode := range []string{"immediate", "review", "agent", "paste", "editing"} {
 		t.Run(mode, func(t *testing.T) {
-			s := screenState{root: t.TempDir(), ratio: 58, diffFocused: true}
+			s := &screenState{root: t.TempDir(), ratio: 58, diffFocused: true}
 			s.relayout(140, 40)
 			var child bytes.Buffer
 			events, stop := make(chan any, 1), make(chan struct{})
@@ -134,7 +134,7 @@ func TestConfiguredHotkeysSurviveCtrlQAndReopen(t *testing.T) {
 			// Verify the quit dispatch saved even the immediate edit before Run's
 			// deferred save, then exercise that save and a second quit/reopen.
 			for restart := 0; restart < 2; restart++ {
-				reopened := screenState{root: s.root, layout: ui.NewLayout(140, 40), diffFocused: true}
+				reopened := &screenState{root: s.root, layout: ui.NewLayout(140, 40), diffFocused: true}
 				reopened.loadPreferences()
 				if !maps.Equal(reopened.review.Hotkeys, want) {
 					t.Fatalf("restart %d: hotkeys = %v, want %v", restart, reopened.review.Hotkeys, want)
