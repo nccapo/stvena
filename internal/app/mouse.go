@@ -42,6 +42,10 @@ func (s *screenState) mouse(sequence string) {
 		}
 		return
 	}
+	// Only keyboard input can assign a shortcut while capture is active.
+	if s.review.Help && s.review.EditingHotkey {
+		return
+	}
 	if button == 64 || button == 65 {
 		if x < s.layout.DiffX || x >= s.layout.DiffX+s.layout.DiffWidth || y < s.layout.DiffY || y >= s.layout.FooterY {
 			return
@@ -66,7 +70,7 @@ func (s *screenState) mouse(sequence string) {
 	}
 	s.mouseDragging = false
 	if y >= s.layout.FooterY {
-		key := ui.ControlKeyAt(s.layout.Width, x, y-s.layout.FooterY, true)
+		key := ui.ControlKeyAt(s.layout.Width, x, y-s.layout.FooterY, true, &s.review)
 		if key == "focus" {
 			if !s.exited {
 				s.diffFocused = false
@@ -86,6 +90,15 @@ func (s *screenState) mouse(sequence string) {
 		return
 	}
 	row := y - s.layout.DiffY
+	if s.review.Help {
+		if !s.review.EditingHotkey {
+			if index := ui.HelpActionAt(&s.review, s.layout.DiffHeight, row); index >= 0 {
+				s.review.HelpIndex = index
+				s.review.Key("enter", s.visibleLines())
+			}
+		}
+		return
+	}
 	if s.review.Menu {
 		count := max(1, s.layout.DiffHeight-4)
 		start := min(max(0, s.review.MenuIndex-count/2), max(0, len(review.Actions)-count))

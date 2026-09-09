@@ -36,10 +36,10 @@ type Layout struct {
 
 func NewLayout(width, height int) Layout { return NewLayoutOptions(width, height, 58, false) }
 
-func NewLayoutOptions(width, height, ratio int, fullscreen bool) Layout {
+func NewLayoutOptions(width, height, ratio int, fullscreen bool, state ...*review.State) Layout {
 	width, height = max(1, width), max(1, height)
 	l := Layout{Width: width, Height: height, LeftY: 1}
-	l.FooterHeight = min(len(controlRows(width, false)), max(0, height-2))
+	l.FooterHeight = min(len(controlRows(width, false, state...)), max(0, height-2))
 	l.FooterY = height - l.FooterHeight
 	contentHeight := max(1, l.FooterY-1)
 	if fullscreen {
@@ -117,7 +117,7 @@ func Render(w io.Writer, terminal *vt.Emulator, state *review.State, layout Layo
 		rows[targetY] = overlay(rows[targetY], layout.DiffX, row, layout.Width)
 	}
 
-	controls := controlRows(layout.Width, diffFocused)
+	controls := controlRows(layout.Width, diffFocused, state)
 	if !diffFocused && state.AgentDraft {
 		controls[0] = cyan + bold + " Type request · Enter: send · Ctrl-G: Switch panes" + reset
 	}
@@ -218,8 +218,8 @@ func overlay(base string, x int, content string, width int) string {
 
 // Keep the review shortcuts visible across the full terminal width, wrapping
 // whole shortcuts onto additional footer rows on narrower terminals.
-func controlRows(width int, diffFocused bool) []string {
-	controls := footerControls()
+func controlRows(width int, diffFocused bool, state ...*review.State) []string {
+	controls := footerControls(state...)
 	var rows []string
 	row := " "
 	for i, control := range controls {
@@ -231,7 +231,8 @@ func controlRows(width int, diffFocused bool) []string {
 			rows = append(rows, row)
 			row, gap = " ", ""
 		}
-		key, label, _ := strings.Cut(control, ":")
+		separator := strings.LastIndex(control, ":")
+		key, label := control[:separator], control[separator+1:]
 		style := cyan + bold
 		if !diffFocused && i > 0 && !strings.HasPrefix(control, "Ctrl-") {
 			style = muted
@@ -241,13 +242,20 @@ func controlRows(width int, diffFocused bool) []string {
 	return append(rows, row)
 }
 
-func footerControls() []string {
-	return []string{"Ctrl-G: Switch panes", "Ctrl-]: New agent", "Ctrl-N: Next agent", "Ctrl-P: Previous agent", "Ctrl-W: Close agent", "3: Files", "1: Changes", "2: Workspace", "T: Checks", "B: Context", "b: Add to agent", "a: Actions", "F: Expand", "Ctrl-Q: quit all"}
+func footerControls(state ...*review.State) []string {
+	controls := []string{"Ctrl-G: Switch panes", "Ctrl-]: New agent", "Ctrl-N: Next agent", "Ctrl-P: Previous agent", "Ctrl-W: Close agent", "3: Files", "1: Changes", "2: Workspace", "T: Checks", "B: Context", "b: Add to agent", "a: Actions", "F: Expand", "?: Hotkeys", "Ctrl-Q: quit all"}
+	if len(state) > 0 && state[0] != nil {
+		for i, control := range controls {
+			key, label, _ := strings.Cut(control, ":")
+			controls[i] = review.KeyLabel(state[0].Binding(key)) + ":" + label
+		}
+	}
+	return controls
 }
-func ControlKeyAt(width, x, y int, _ bool) string {
+func ControlKeyAt(width, x, y int, _ bool, state ...*review.State) string {
 	row, column := 0, 1
-	keys := []string{"focus", "new-agent", "next-agent", "previous-agent", "close-agent", "3", "1", "2", "T", "B", "b", "a", "F", "quit-app"}
-	for i, label := range footerControls() {
+	keys := []string{"focus", "new-agent", "next-agent", "previous-agent", "close-agent", "3", "1", "2", "T", "B", "b", "a", "F", "?", "quit-app"}
+	for i, label := range footerControls(state...) {
 		gap := 0
 		if column > 1 {
 			gap = 2

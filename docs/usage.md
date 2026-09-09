@@ -305,6 +305,21 @@ There are no discard, restore, commit, push or branch-editing actions.
 
 ## Controls
 
+Press **?** in review, or click **?: Hotkeys** in the footer, to configure review
+shortcuts. Select an action with **↑/↓** (or **j/k**) and press **Enter**, or click
+its row, then press a replacement printable key. Uppercase and lowercase keys
+are distinct. Conflicting assignments are rejected; move the existing binding
+first to free its key. **Esc** cancels an edit or closes the controls screen.
+**Backspace** restores the selected shortcut; **Delete** restores all defaults.
+Changes apply immediately and save with this repository's layout preferences.
+
+The controls screen, Actions menu and clickable toolbars show your configured
+keys. A shortcut retains its context-dependent behavior (for example, **d**
+scrolls code but removes an attachment in Context). **?**, **j/k**, named
+navigation keys (arrows, Enter, Esc, Tab, Backspace, etc.) and global **Ctrl**
+shortcuts stay fixed. Text entry and input to the agent are unaffected.
+The table below lists defaults.
+
 | Key | Action |
 | --- | --- |
 | Ctrl-G | Switch panes (agent / workspace), preserving the open file and selection |

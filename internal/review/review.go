@@ -21,6 +21,9 @@ type State struct {
 	Scope                             int
 	Query                             string
 	Searching, PatchFocused, Help     bool
+	Hotkeys                           map[string]string
+	HelpIndex                         int
+	EditingHotkey, HotkeysDirty       bool
 	Browser, FullFile                 bool
 	Content                           diffview.Content
 	ContentKey                        string
@@ -199,6 +202,11 @@ func (s *State) Clamp(visible int) {
 
 // Key accepts a decoded key or a Unicode character; no keys mutate Git/files.
 func (s *State) Key(key string, visible int) {
+	if key == "?" && !s.Help && !s.Searching && s.Prompt == "" && s.ConfirmAction == "" {
+		s.Help, s.EditingHotkey = true, false
+		s.Notice = ""
+		return
+	}
 	if s.Selecting && !s.Menu && s.Prompt == "" && s.Panel == "" && !s.Help && !s.Searching {
 		switch key {
 		case "f", "esc", "backspace", "n", "p", "v", "s", "view-file", "view-diff":
@@ -240,9 +248,7 @@ func (s *State) Key(key string, visible int) {
 		return
 	}
 	if s.Help {
-		if key == "?" || key == "esc" || key == "enter" {
-			s.Help = false
-		}
+		s.helpKey(key)
 		return
 	}
 	if s.Panel != "" && s.Prompt == "" && s.ConfirmAction == "" && !s.Menu {
@@ -279,8 +285,6 @@ func (s *State) Key(key string, visible int) {
 			s.Key("v", visible)
 		}
 		return
-	case "?":
-		s.Help = true
 	case "f":
 		s.TargetLine = 0
 		s.Browser, s.PatchFocused = true, false

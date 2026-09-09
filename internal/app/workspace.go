@@ -80,7 +80,7 @@ func (s *screenState) updateSource() {
 	}
 }
 func (s *screenState) relayout(width, height int) {
-	s.layout = ui.NewLayoutOptions(width, height, s.ratio, s.fullscreen)
+	s.layout = ui.NewLayoutOptions(width, height, s.ratio, s.fullscreen, &s.review)
 }
 func (s *screenState) resizePTY(v *vt.Emulator, p *os.File) {
 	// Keep the agent's last usable size while review occupies the full screen.
@@ -111,6 +111,15 @@ func (s *screenState) setCheck(r checks.Result) {
 	s.review.CheckLines = strings.Split(r.Command+"\nSnapshot: "+r.Tree+"\n"+s.review.CheckStatus+fmt.Sprintf(" (exit %d)", r.ExitCode)+" · "+r.FinishedAt.Format(time.RFC3339)+"\n\n"+r.Output, "\n")
 }
 func (s *screenState) dispatch(ctx context.Context, events chan<- any, stop <-chan struct{}) bool {
+	if s.review.HotkeysDirty {
+		s.review.HotkeysDirty = false
+		s.relayout(s.layout.Width, s.layout.Height)
+		if err := s.savePreferences(); err != nil {
+			s.review.Notice = "Hotkeys active, but could not save: " + err.Error()
+		} else {
+			s.review.Notice = "Hotkeys saved for this repository"
+		}
+	}
 	r := s.review.Request
 	s.review.Request = ""
 	send := func(message string, err error) {

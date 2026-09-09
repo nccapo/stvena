@@ -610,7 +610,7 @@ func (s *screenState) decodeInput(flush bool) {
 			if s.agentPicker != nil {
 				s.agentPickerKey(key)
 			} else {
-				s.review.Key(key, s.visibleLines())
+				s.review.InputKey(key, s.visibleLines())
 			}
 		}
 	}
