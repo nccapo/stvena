@@ -16,7 +16,12 @@ stvena claude
 stvena -- codex --model YOUR_MODEL
 ```
 
-Paste your prompt into the agent normally. **Ctrl-G** switches panes. Click a file
+The shortcuts below use **Ctrl** on both macOS and Linux. Command keys belong
+to the terminal application unless it is explicitly configured to forward them;
+see [Command keys in your terminal](#command-keys-in-your-terminal).
+
+Stvena starts with **Configuration** selected in the bottom panel. Press
+**Enter** to adjust shortcuts, or **Esc** to focus the agent and paste your prompt. **Ctrl-G** switches panes. Click a file
 or select it with arrows and Enter. **v** switches between changed lines and the
 whole file. **a** opens the Actions menu; the common controls stay at the bottom.
 You can also click the **Changes** and **Full file** tabs. File rows put names
@@ -305,23 +310,48 @@ There are no discard, restore, commit, push or branch-editing actions.
 
 ## Controls
 
-Press **?** in review, or click **?: Hotkeys** in the footer, to configure review
-shortcuts. Select an action with **↑/↓** (or **j/k**) and press **Enter**, or click
-its row, then press a replacement printable key. Uppercase and lowercase keys
-are distinct. Conflicting assignments are rejected; move the existing binding
-first to free its key. **Esc** cancels an edit or closes the controls screen.
-**Backspace** restores the selected shortcut; **Delete** restores all defaults.
-Changes apply immediately and save with this repository's layout preferences.
+The bottom panel has focus when Stvena opens, with **Configuration** already
+selected. Press **Enter** to configure shortcuts immediately, or **Esc** to start
+typing in the agent (or return to review in standalone mode). No Ctrl combination
+or function key is needed to reach Configuration on startup.
+
+Use **Left/Right** to select a footer control, **Up/Down** to move between wrapped
+rows, and **Enter** to activate it. **Esc** returns to the pane. **Down** at the
+end of a review file list also enters the panel; **Up** from its first row
+returns to the pane. Ordinary arrow keys in the agent pane remain available to
+its editor and history after leaving the footer. **F6** remains an optional way
+to refocus the panel; keyboards with media controls may require **Fn-F6**.
+
+Select **?: Configuration** in the panel to edit shortcuts. It opens on
+**Switch panes**, so a Ctrl-G conflict never prevents configuration. For example,
+press **Enter**, then **Ctrl-O** to change pane switching from Ctrl-G to Ctrl-O.
+Ctrl-G is then passed through to the agent. **?** in review also opens Configuration.
+
+Select another action with **↑/↓** (or **j/k**) and press **Enter**, or click its
+row. Global actions (switch panes, new/next/previous/close agent, quit all) accept
+Ctrl combinations. Review actions accept one printable key; uppercase and
+lowercase are distinct. Conflicts are rejected. Ctrl-C, Ctrl-D/U, the control
+bytes used for text-entry/navigation keys, and F6 cannot be assigned as global
+actions. **Esc** cancels an edit or closes Configuration. **Backspace** restores
+the selected shortcut; **Delete** restores all defaults.
+
+Changes apply immediately and save for all projects. Every newly opened Stvena
+window loads the same shortcuts. Layout settings remain specific to each project.
+Existing repository shortcuts migrate automatically when you open the first
+project with custom bindings; shared settings take precedence after that,
+including when you reset to defaults.
 
 The controls screen, Actions menu and clickable toolbars show your configured
 keys. A shortcut retains its context-dependent behavior (for example, **d**
 scrolls code but removes an attachment in Context). **?**, **j/k**, named
-navigation keys (arrows, Enter, Esc, Tab, Backspace, etc.) and global **Ctrl**
-shortcuts stay fixed. Text entry and input to the agent are unaffected.
+navigation keys (arrows, Enter, Esc, Tab, Backspace, etc.) and **F6** stay fixed.
+Configured global shortcuts are intercepted in either pane. Freed shortcuts and
+ordinary text entry pass through to the agent.
 The table below lists defaults.
 
 | Key | Action |
 | --- | --- |
+| F6 | Focus the bottom panel; arrows navigate, Enter activates, Esc returns |
 | Ctrl-G | Switch panes (agent / workspace), preserving the open file and selection |
 | Ctrl-] | Choose Codex, Claude Code, or the launch command for a new terminal |
 | Ctrl-N / Ctrl-P | Switch to the next / previous agent terminal |
@@ -355,14 +385,50 @@ The table below lists defaults.
 | q | Quit after all agents exit, or quit standalone review |
 
 Review shortcuts are dimmed while the agent has focus. Agent input passes through
-unchanged except for the reserved Ctrl-G, Ctrl-], Ctrl-N, Ctrl-P, Ctrl-W and Ctrl-Q keys.
+unchanged except for F6, configured global shortcuts (by default Ctrl-G, Ctrl-],
+Ctrl-N, Ctrl-P, Ctrl-W and Ctrl-Q), and their active Command aliases. Footer
+navigation consumes arrows and Enter only while the panel has focus.
 Shortcuts inside a bracketed paste are treated as literal pasted text.
+
+### Command keys in your terminal
+
+Stvena cannot override keyboard shortcuts handled by the terminal application.
+For example, Apple Terminal uses **Cmd-G** for Find Next and **Cmd-W** to close
+its tab ([Apple's shortcut reference](https://support.apple.com/guide/terminal/keyboard-shortcuts-trmlshtcts/mac)).
+Use **Ctrl-G** to switch Stvena panes and **Ctrl-]** to open its agent chooser,
+or click the footer controls. Stvena displays your configured shortcuts.
+
+Optional Command aliases are recognized when a terminal forwards them using the
+[Kitty keyboard protocol's CSI-u encoding](https://sw.kovidgoyal.net/kitty/keyboard-protocol/).
+If your terminal supports custom Command bindings that send escape sequences,
+you can configure these aliases there while the corresponding Ctrl chord is
+assigned in Stvena. Reassigning a Ctrl chord also releases its Command alias. This requires terminal-side support;
+changing a Stvena binding or enabling a keyboard protocol cannot take over a
+terminal application's menu shortcut.
+
+| Command key | Sequence to send (`ESC` is the escape byte) |
+| --- | --- |
+| Cmd-G | `ESC[103;9u` |
+| Cmd-] | `ESC[93;9u` |
+| Cmd-N | `ESC[110;9u` |
+| Cmd-P | `ESC[112;9u` |
+| Cmd-W | `ESC[119;9u` |
+| Cmd-Q | `ESC[113;9u` |
+
+**Ctrl-C** remains the agent's native interrupt. Ordinary review letter keys
+continue to work without a modifier.
 
 ## Local storage and limits
 
 Session metadata, pinned checkpoints, comments, review marks, context attachments, draft requests,
-preferences and the latest check result
+layout preferences and the latest check result
 are stored under the OS user cache directory in `stvena/<repository hash>`.
+Shared shortcuts are stored separately at `stvena/hotkeys.json` under the OS
+user configuration directory: `~/Library/Application Support` on macOS, and
+`$XDG_CONFIG_HOME` (or `~/.config`) on Linux. Closing an unedited window does not
+overwrite shortcut changes made in another project. Reopen an already running
+window to load changes made elsewhere.
+
 Private `refs/stvena/sessions/*` and `refs/stvena/reviews/*` retain Git objects
 needed for snapshots and saved review references. Snapshot capture uses a
 separate temporary index, preserving your normal index and branch. Snapshots

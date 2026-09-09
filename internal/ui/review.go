@@ -181,7 +181,7 @@ func renderReview(s *review.State, width, height int, focused bool) []string {
 			} else {
 				add(dim + " Working tree is clean.")
 			}
-			add(cyan + " Ctrl-G: Switch panes · a: Actions")
+			add(cyan + " " + s.Binding("Ctrl-G") + ": Switch panes · " + s.Binding("a") + ": Actions")
 		} else {
 			add(dim + " No files match this view. Esc clears filter.")
 		}

@@ -23,6 +23,8 @@ type State struct {
 	Searching, PatchFocused, Help     bool
 	Hotkeys                           map[string]string
 	HelpIndex                         int
+	FooterFocused                     bool
+	FooterIndex                       int
 	EditingHotkey, HotkeysDirty       bool
 	Browser, FullFile                 bool
 	Content                           diffview.Content
@@ -207,6 +209,10 @@ func (s *State) Key(key string, visible int) {
 		s.Notice = ""
 		return
 	}
+	if s.Help {
+		s.helpKey(key)
+		return
+	}
 	if s.Selecting && !s.Menu && s.Prompt == "" && s.Panel == "" && !s.Help && !s.Searching {
 		switch key {
 		case "f", "esc", "backspace", "n", "p", "v", "s", "view-file", "view-diff":
@@ -245,10 +251,6 @@ func (s *State) Key(key string, visible int) {
 		}
 		s.Selected, s.Scroll = 0, 0
 		s.filter("")
-		return
-	}
-	if s.Help {
-		s.helpKey(key)
 		return
 	}
 	if s.Panel != "" && s.Prompt == "" && s.ConfirmAction == "" && !s.Menu {

@@ -74,7 +74,7 @@ func reviewFooter(s *review.State) string {
 		return cyan + " " + safeText(s.Notice)
 	}
 	if s.Help {
-		return muted + " Ctrl-G: Switch panes  ?: help"
+		return muted + " " + s.Binding("Ctrl-G") + ": Switch panes  ?: configuration"
 	}
 	return reviewControlBar(s)
 }

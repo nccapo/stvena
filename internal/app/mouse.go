@@ -70,21 +70,16 @@ func (s *screenState) mouse(sequence string) {
 	}
 	s.mouseDragging = false
 	if y >= s.layout.FooterY {
-		key := ui.ControlKeyAt(s.layout.Width, x, y-s.layout.FooterY, true, &s.review)
-		if key == "focus" {
-			if !s.exited {
-				s.diffFocused = false
-				s.fullscreen = false
-				s.relayout(s.layout.Width, s.layout.Height)
-			}
-		} else if key == "new-agent" || key == "next-agent" || key == "previous-agent" || key == "close-agent" {
-			s.agentShortcut(map[string]byte{"new-agent": 0x1d, "next-agent": 0x0e, "previous-agent": 0x10, "close-agent": 0x17}[key])
-		} else if key == "quit-app" {
-			s.review.Request = key
-		} else if key != "" {
-			s.review.Key(key, s.visibleLines())
-		}
+		key := ui.ControlKeyAt(s.layout.Width, x, y-s.layout.FooterY+ui.FooterStart(s.layout.Width, s.layout.FooterHeight, &s.review), true, &s.review)
+		s.activateFooter(key)
 		return
+	}
+	if s.review.FooterFocused {
+		s.review.FooterFocused = false
+		if x < s.layout.DiffX || x >= s.layout.DiffX+s.layout.DiffWidth || y < s.layout.DiffY {
+			return
+		}
+		s.diffFocused = true
 	}
 	if x < s.layout.DiffX || x >= s.layout.DiffX+s.layout.DiffWidth {
 		return

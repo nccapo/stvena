@@ -5,9 +5,9 @@ import (
 	"unicode"
 )
 
-// HotkeyActions describes the character shortcuts. Named navigation keys and
-// global terminal controls stay fixed so the editor is always accessible.
-var HotkeyActions = append([]Action{
+// HotkeyActions includes review keys and global controls. F6 always reaches
+// the footer so a conflicting shortcut cannot lock users out of configuration.
+var HotkeyActions = append(append([]Action{
 	{"a", "Actions menu", "Open all review actions"},
 	{"f", "File browser", "Return to the file list"},
 	{"n", "Next file", "Select the next file"},
@@ -25,7 +25,7 @@ var HotkeyActions = append([]Action{
 	{"M", "Previous text match", "Find the previous search result"},
 	{"i", "Edit context request", "Edit your question for the agent"},
 	{"o", "Check problems", "Open source locations from check results"},
-}, Actions...)
+}, Actions...), GlobalHotkeyActions...)
 
 func (s *State) Binding(key string) string {
 	if custom := s.Hotkeys[key]; custom != "" {
@@ -54,7 +54,11 @@ func ValidateHotkeys(bindings map[string]string) error {
 		known[action.Key] = true
 		key := action.Key
 		if custom, ok := bindings[key]; ok {
-			if !validHotkey(custom) {
+			if IsGlobalHotkey(action.Key) {
+				if !validGlobalHotkey(custom) {
+					return fmt.Errorf("Use a Ctrl key; Ctrl-C/D/H/I/J/M/U and F6 stay fixed")
+				}
+			} else if !validHotkey(custom) {
 				return fmt.Errorf("Use one printable key; ?, j and k stay fixed")
 			}
 			key = custom

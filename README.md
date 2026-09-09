@@ -99,6 +99,10 @@ stvena sessions
 stvena review --session ID
 ```
 
+**Shortcuts use Ctrl on both macOS and Linux.** Command keys normally belong
+to the terminal application. Optional Command aliases require a terminal that
+forwards them; see [terminal shortcut setup](docs/usage.md#command-keys-in-your-terminal).
+
 **Multiple agent terminals:** Ctrl-] opens a chooser: **c** starts Codex, **l**
 starts Claude Code, and **Enter** repeats your original command with its arguments.
 Run Codex and Claude side by side; Ctrl-N / Ctrl-P switch between them. Background
@@ -111,7 +115,8 @@ but direct selection paste is supported for Codex and Claude Code.
 
 ## A typical workflow
 
-1. Start `stvena` in your project and give the agent a task.
+1. Start `stvena` in your project. Press **Enter** to configure shortcuts, or
+   **Esc** to type your task in the agent.
 2. Press **Ctrl-G** to focus review. Open a changed file, or press **3** to browse
    the project. Press **v** to switch between a diff and the full file.
 3. Drag over code and press **b** to paste it into the agent's input. Add your
@@ -124,6 +129,7 @@ but direct selection paste is supported for Codex and Claude Code.
 
 | Key | Action |
 | --- | --- |
+| **F6** | Focus bottom panel; arrows select, Enter activates, Esc returns |
 | **Ctrl-G** | Switch between agent and review |
 | **Ctrl-]** | Open another agent terminal |
 | **Ctrl-N / Ctrl-P** | Next / previous agent terminal |
@@ -140,6 +146,11 @@ but direct selection paste is supported for Codex and Claude Code.
 | **t / T** | Run a check / inspect results |
 | **a / ?** | Actions menu / keyboard help |
 
+Stvena opens with the bottom panel focused and **Configuration** selected.
+Press **Enter** to change shortcuts, or **Esc** to start typing in the agent.
+Use arrows to select any other footer action. For a Ctrl-G conflict, change
+**Switch panes** to **Ctrl-O**; Ctrl-G then reaches the agent. Settings apply
+across projects. **?** opens Configuration in review; **F6** can refocus the footer.
 Review shortcuts apply when review has focus. **Ctrl-C** keeps the agent's
 native interrupt behavior. Review remains open after the agent exits; **q**
 closes it. See the [complete user guide](docs/usage.md) for comments, hunk staging,
@@ -160,8 +171,10 @@ Stvena does not require its own API key or account. It launches the agent CLI
 you already use with your environment and credentials. Your chosen agent's
 network access and data handling still apply.
 
-- Review metadata, comments, snippets, draft requests, preferences, and check
+- Review metadata, comments, snippets, draft requests, layout preferences, and check
   output are stored under your OS cache directory in `stvena/<repository hash>`.
+- Custom shortcuts are shared across projects in your OS user configuration
+  directory at `stvena/hotkeys.json`.
 - Captured code is retained in local Git objects under `refs/stvena/sessions/*`
   and `refs/stvena/reviews/*`. Use normal branch pushes; a mirror push can also
   publish these private refs.

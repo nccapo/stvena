@@ -62,7 +62,7 @@ func TestCustomHotkeyLabelsKeepCanonicalClickActions(t *testing.T) {
 			for x := 0; x < width; x++ {
 				if ControlKeyAt(width, x, y, true, &s) == "b" {
 					found = true
-					if !strings.Contains(plain, "界: Add to agent") {
+					if !strings.Contains(plain, "界: Paste to agent") {
 						t.Fatal("footer hit testing did not use custom label widths")
 					}
 				}
@@ -70,6 +70,52 @@ func TestCustomHotkeyLabelsKeepCanonicalClickActions(t *testing.T) {
 		}
 		if !found {
 			t.Fatal("custom footer control has no click target")
+		}
+	}
+}
+
+func TestGlobalShortcutLabelsMatchFooterClickTargets(t *testing.T) {
+	for _, width := range []int{35, 80, 140} {
+		rows := controlRows(width, false)
+		for key, action := range map[string]string{"G": "focus", "]": "new-agent", "N": "next-agent", "P": "previous-agent", "W": "close-agent", "Q": "quit-app"} {
+			label := ("Ctrl-" + key) + ":"
+			found := false
+			for y, row := range rows {
+				plain := ansi.Strip(row)
+				if x := strings.Index(plain, label); x >= 0 {
+					found = true
+					if got := ControlKeyAt(width, x, y, false); got != action {
+						t.Fatalf("%s clicked %s, want %s", label, got, action)
+					}
+				}
+			}
+			if !found {
+				t.Fatalf("missing %s at width %d", label, width)
+			}
+		}
+	}
+}
+
+func TestFooterNavigationAndCustomGlobalLabels(t *testing.T) {
+	s := review.State{FooterFocused: true, Hotkeys: map[string]string{"Ctrl-G": "Ctrl-O"}}
+	for _, width := range []int{35, 80, 140} {
+		rows := controlRows(width, false, &s)
+		if !strings.Contains(ansi.Strip(strings.Join(rows, "\n")), "Ctrl-O: Switch panes") || strings.Contains(ansi.Strip(strings.Join(rows, "\n")), "Ctrl-G:") {
+			t.Fatal("footer did not reflect global remapping")
+		}
+		for index := range FooterControls {
+			s.FooterIndex = index
+			rows = controlRows(width, false, &s)
+			start := FooterStart(width, 2, &s)
+			if start >= len(rows) || !strings.Contains(strings.Join(rows[start:min(start+2, len(rows))], ""), "\x1b[7m") {
+				t.Fatalf("selection %d invisible at width %d", index, width)
+			}
+			if next := FooterMove(width, index, "right", &s); next != (index+1)%len(FooterControls) {
+				t.Fatal("Right did not traverse footer")
+			}
+		}
+		if FooterMove(width, 0, "up", &s) != -1 {
+			t.Fatal("Up did not leave first footer row")
 		}
 	}
 }

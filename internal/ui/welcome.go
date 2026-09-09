@@ -44,7 +44,7 @@ func renderWelcome(s *review.State, width, height int, focused bool) []string {
 			"",
 			pulse + "●" + reset + muted + " " + status,
 			"",
-			cyan + "Ctrl-G" + reset + "  " + fitANSI("Switch panes", 23),
+			cyan + s.Binding("Ctrl-G") + reset + "  " + fitANSI("Switch panes", 23),
 			cyan + "     v" + reset + "  " + fitANSI("See the whole file", 23),
 			cyan + "Drag+b" + reset + "  Add code to agent draft",
 		}

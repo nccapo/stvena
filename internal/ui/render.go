@@ -118,13 +118,19 @@ func Render(w io.Writer, terminal *vt.Emulator, state *review.State, layout Layo
 	}
 
 	controls := controlRows(layout.Width, diffFocused, state)
-	if !diffFocused && state.AgentDraft {
-		controls[0] = cyan + bold + " Type request · Enter: send · Ctrl-G: Switch panes" + reset
+	if state.FooterFocused {
+		target := "agent"
+		if diffFocused {
+			target = "review"
+		}
+		rows[0] = reviewRow(headerBG+bold+" BOTTOM PANEL · Arrows: move · Enter: select · Esc: "+target, layout.Width)
+		cursorVisible = false
 	}
+	footerStart := FooterStart(layout.Width, layout.FooterHeight, state)
 	for y := 0; y < layout.FooterHeight; y++ {
 		text := ""
-		if y < len(controls) {
-			text = controls[y]
+		if footerStart+y < len(controls) {
+			text = controls[footerStart+y]
 		}
 		rows[layout.FooterY+y] = reviewRow(headerBG+text, layout.Width)
 	}
@@ -234,27 +240,47 @@ func controlRows(width int, diffFocused bool, state ...*review.State) []string {
 		separator := strings.LastIndex(control, ":")
 		key, label := control[:separator], control[separator+1:]
 		style := cyan + bold
-		if !diffFocused && i > 0 && !strings.HasPrefix(control, "Ctrl-") {
+		if !diffFocused && !review.IsGlobalHotkey(FooterControls[i].Key) && FooterControls[i].Key != "F6" {
 			style = muted
 		}
-		row += gap + style + key + reset + headerBG + ":" + label
+		if len(state) > 0 && state[0] != nil && state[0].FooterFocused && state[0].FooterIndex == i {
+			row += gap + "\x1b[7m" + bold + key + ":" + label + reset + headerBG
+		} else {
+			row += gap + style + key + reset + headerBG + ":" + label
+		}
 	}
 	return append(rows, row)
 }
 
+type FooterControl struct{ Key, Action, Label string }
+
+var FooterControls = []FooterControl{
+	{"Ctrl-G", "focus", "Switch panes"}, {"Ctrl-]", "new-agent", "New agent"},
+	{"Ctrl-N", "next-agent", "Next agent"}, {"Ctrl-P", "previous-agent", "Previous agent"},
+	{"Ctrl-W", "close-agent", "Close agent"},
+	{"1", "1", "Changes"}, {"2", "2", "Workspace"}, {"3", "3", "Files"},
+	{"B", "B", "Context"}, {"b", "b", "Paste to agent"}, {"T", "T", "Checks"},
+	{"K", "K", "Checkpoint"}, {"a", "a", "Actions"}, {"F", "F", "Expand"},
+	{"?", "?", "Configuration"}, {"Ctrl-Q", "quit-app", "Quit all"}, {"F6", "footer", "Bottom panel"},
+}
+
 func footerControls(state ...*review.State) []string {
-	controls := []string{"Ctrl-G: Switch panes", "Ctrl-]: New agent", "Ctrl-N: Next agent", "Ctrl-P: Previous agent", "Ctrl-W: Close agent", "3: Files", "1: Changes", "2: Workspace", "T: Checks", "B: Context", "b: Add to agent", "a: Actions", "F: Expand", "?: Hotkeys", "Ctrl-Q: quit all"}
-	if len(state) > 0 && state[0] != nil {
-		for i, control := range controls {
-			key, label, _ := strings.Cut(control, ":")
-			controls[i] = review.KeyLabel(state[0].Binding(key)) + ":" + label
+	controls := make([]string, len(FooterControls))
+	for i, control := range FooterControls {
+		key := control.Key
+		if len(state) > 0 && state[0] != nil {
+			key = state[0].Binding(key)
 		}
+		controls[i] = review.KeyLabel(key) + ": " + control.Label
 	}
 	return controls
 }
-func ControlKeyAt(width, x, y int, _ bool, state ...*review.State) string {
+
+type footerPosition struct{ x, y, width int }
+
+func footerPositions(width int, state ...*review.State) []footerPosition {
+	positions := make([]footerPosition, len(FooterControls))
 	row, column := 0, 1
-	keys := []string{"focus", "new-agent", "next-agent", "previous-agent", "close-agent", "3", "1", "2", "T", "B", "b", "a", "F", "?", "quit-app"}
 	for i, label := range footerControls(state...) {
 		gap := 0
 		if column > 1 {
@@ -262,14 +288,66 @@ func ControlKeyAt(width, x, y int, _ bool, state ...*review.State) string {
 		}
 		if column+gap+ansiWidth(label) > width && column > 1 {
 			row++
-			column = 1
-			gap = 0
+			column, gap = 1, 0
 		}
 		column += gap
-		if row == y && x >= column && x < column+ansiWidth(label) {
-			return keys[i]
-		}
+		positions[i] = footerPosition{column, row, ansiWidth(label)}
 		column += ansiWidth(label)
+	}
+	return positions
+}
+
+// FooterMove follows visual rows when the footer wraps. -1 returns to the pane.
+func FooterMove(width, index int, key string, state *review.State) int {
+	positions := footerPositions(width, state)
+	index = min(max(0, index), len(positions)-1)
+	switch key {
+	case "left":
+		return (index + len(positions) - 1) % len(positions)
+	case "right", "tab":
+		return (index + 1) % len(positions)
+	case "home":
+		return 0
+	case "end":
+		return len(positions) - 1
+	case "up", "down":
+		row := positions[index].y + 1
+		if key == "up" {
+			row = positions[index].y - 1
+		}
+		if row < 0 {
+			return -1
+		}
+		best, distance := index, int(^uint(0)>>1)
+		for i, p := range positions {
+			delta := p.x - positions[index].x
+			if delta < 0 {
+				delta = -delta
+			}
+			if p.y == row && delta < distance {
+				best, distance = i, delta
+			}
+		}
+		return best
+	}
+	return index
+}
+
+// FooterStart keeps keyboard selection visible when only a few rows fit.
+func FooterStart(width, height int, state *review.State) int {
+	if state == nil || !state.FooterFocused {
+		return 0
+	}
+	positions := footerPositions(width, state)
+	index := min(max(0, state.FooterIndex), len(positions)-1)
+	return max(0, positions[index].y-height+1)
+}
+
+func ControlKeyAt(width, x, y int, _ bool, state ...*review.State) string {
+	for i, p := range footerPositions(width, state...) {
+		if p.y == y && x >= p.x && x < p.x+p.width {
+			return FooterControls[i].Action
+		}
 	}
 	return ""
 }

@@ -15,7 +15,17 @@ import (
 	"github.com/nccapo/stvena/internal/ui"
 )
 
+func isolateHotkeys(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	previous := preferencesConfigDir
+	preferencesConfigDir = func() (string, error) { return dir, nil }
+	t.Cleanup(func() { preferencesConfigDir = previous })
+	return filepath.Join(dir, "stvena", "hotkeys.json")
+}
+
 func TestConfigureHotkeyWithMouseAndPersist(t *testing.T) {
+	isolateHotkeys(t)
 	s := screenState{root: t.TempDir(), ratio: 58, diffFocused: true}
 	s.relayout(140, 40)
 	var child bytes.Buffer
@@ -33,6 +43,7 @@ func TestConfigureHotkeyWithMouseAndPersist(t *testing.T) {
 	if !clicked || !s.review.Help {
 		t.Fatal("clicking ? did not open hotkey configuration")
 	}
+	s.review.HelpIndex = 0 // Exercise the review-key section after opening Configuration.
 	s.mouse(fmt.Sprintf("<0;%d;%dM", s.layout.DiffX+2, s.layout.DiffY+4))
 	if !s.review.EditingHotkey {
 		t.Fatal("clicking an action did not start editing")
@@ -63,6 +74,7 @@ func TestConfigureHotkeyWithMouseAndPersist(t *testing.T) {
 }
 
 func TestHotkeyPreferencesRejectConflictsAndReadOldLayout(t *testing.T) {
+	isolateHotkeys(t)
 	s := screenState{root: t.TempDir(), layout: ui.NewLayout(140, 40)}
 	dir, err := session.RepoDir(s.root)
 	if err != nil {
@@ -84,13 +96,10 @@ func TestHotkeyPreferencesRejectConflictsAndReadOldLayout(t *testing.T) {
 }
 
 func TestHotkeySaveFailureKeepsBindingAndReportsError(t *testing.T) {
+	path := isolateHotkeys(t)
 	s := screenState{root: t.TempDir(), ratio: 58, review: review.State{Help: true}}
 	s.relayout(140, 40)
-	dir, err := session.RepoDir(s.root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Mkdir(filepath.Join(dir, "layout.json"), 0700); err != nil {
+	if err := os.MkdirAll(path, 0700); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.review.SetHotkey("v", "r"); err != nil {
@@ -105,6 +114,7 @@ func TestHotkeySaveFailureKeepsBindingAndReportsError(t *testing.T) {
 func TestConfiguredHotkeysSurviveCtrlQAndReopen(t *testing.T) {
 	for _, mode := range []string{"immediate", "review", "agent", "paste", "editing"} {
 		t.Run(mode, func(t *testing.T) {
+			isolateHotkeys(t)
 			s := &screenState{root: t.TempDir(), ratio: 58, diffFocused: true}
 			s.relayout(140, 40)
 			var child bytes.Buffer
@@ -156,5 +166,102 @@ func TestConfiguredHotkeysSurviveCtrlQAndReopen(t *testing.T) {
 				t.Fatal("configuration or Ctrl-Q input leaked to the agent")
 			}
 		})
+	}
+}
+
+func TestHotkeysSharedAcrossProjectsWithoutSharingLayout(t *testing.T) {
+	path := isolateHotkeys(t)
+	first := screenState{root: t.TempDir(), ratio: 65}
+	first.review.Wrap = true
+	first.review.SideBySide = true
+	if err := first.review.SetHotkey("a", "r"); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.savePreferences(); err != nil {
+		t.Fatal(err)
+	}
+	second := screenState{root: t.TempDir(), ratio: 58}
+	second.loadPreferences() // This repository has never had a layout file.
+	if second.review.Binding("a") != "r" || second.ratio != 58 || second.review.Wrap || second.review.SideBySide {
+		t.Fatalf("shared hotkeys or independent layout failed: binding=%q ratio=%d wrap=%t sideBySide=%t", second.review.Binding("a"), second.ratio, second.review.Wrap, second.review.SideBySide)
+	}
+	if err := second.review.SetHotkey("a", "z"); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.savePreferences(); err != nil {
+		t.Fatal(err)
+	}
+	// An older window closing must not overwrite a more recent customization.
+	if err := first.savePreferences(); err != nil {
+		t.Fatal(err)
+	}
+	reopened := screenState{root: first.root}
+	reopened.loadPreferences()
+	if reopened.review.Binding("a") != "z" || reopened.ratio != 65 || !reopened.review.Wrap || !reopened.review.SideBySide {
+		t.Fatal("stale window overwrote global settings or lost project layout")
+	}
+	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0600 {
+		t.Fatalf("global config permissions: %v, %v", info, err)
+	}
+}
+
+func TestLegacyHotkeysMigrateOnceAndResetGlobally(t *testing.T) {
+	isolateHotkeys(t)
+	first := screenState{root: t.TempDir()}
+	second := screenState{root: t.TempDir()}
+	for _, s := range []*screenState{&first, &second} {
+		dir, err := session.RepoDir(s.root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "layout.json"), []byte(`{"Ratio":65,"Hotkeys":{"a":"r"}}`), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first.loadPreferences()
+	fresh := screenState{root: t.TempDir()}
+	fresh.loadPreferences()
+	if first.review.Binding("a") != "r" || fresh.review.Binding("a") != "r" {
+		t.Fatal("legacy customization was not migrated for other projects")
+	}
+	first.review.Help = true
+	first.review.InputKey("delete", 20)
+	if err := first.savePreferences(); err != nil {
+		t.Fatal(err)
+	}
+	second.loadPreferences()
+	if second.review.Binding("a") != "a" || len(second.review.Hotkeys) != 0 {
+		t.Fatal("old project settings resurrected a globally reset binding")
+	}
+}
+
+func TestInvalidGlobalHotkeysKeepLayoutAndDoNotFallBackToLegacy(t *testing.T) {
+	path := isolateHotkeys(t)
+	s := screenState{root: t.TempDir()}
+	dir, err := session.RepoDir(s.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "layout.json"), []byte(`{"Ratio":65,"Wrap":true,"Hotkeys":{"a":"r"}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, data := range []string{`{"Hotkeys":{"v":"w"}}`, `{"Hotkeys":`} {
+		if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+			t.Fatal(err)
+		}
+		s.loadPreferences()
+		if len(s.review.Hotkeys) != 0 || s.ratio != 65 || !s.review.Wrap || !strings.Contains(s.review.Notice, "Invalid saved hotkeys") {
+			t.Fatalf("invalid global config mishandled: %s", s.review.Notice)
+		}
+		if err := s.savePreferences(); err != nil {
+			t.Fatal(err)
+		}
+		saved, err := os.ReadFile(path)
+		if err != nil || string(saved) != data {
+			t.Fatal("unedited invalid config overwritten")
+		}
 	}
 }

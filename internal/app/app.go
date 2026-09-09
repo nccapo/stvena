@@ -66,7 +66,7 @@ func Run(args []string) error {
 		return nil
 	}
 	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
-		fmt.Fprintln(os.Stdout, "Usage: stvena [--] [command [args...]]\n       stvena review [--session ID]\n       stvena sessions\n\nDefault command: codex. Ctrl-G switches panes (agent/workspace), preserving the open file; a opens Actions.\nCtrl-] chooses Codex, Claude Code, or the launch command for a new terminal. Ctrl-N / Ctrl-P switch agent terminals.\nCtrl-W closes the current agent terminal and stops its command.\nCtrl-Q closes stvena and stops all running commands. Ctrl-C interrupts the command.\nReview stays open after commands exit. q closes review once all agents finish.\nRun inside the repository you want to review.")
+		fmt.Fprintln(os.Stdout, "Usage: stvena [--] [command [args...]]\n       stvena review [--session ID]\n       stvena sessions\n\nDefault command: codex. The bottom panel starts focused on Configuration.\nArrows select, Enter activates, Esc returns to the agent or review. F6 can refocus the panel.\nSelect Configuration to change global or review shortcuts for all projects.\nCtrl-G switches panes (agent/workspace), preserving the open file; a opens Actions.\nCtrl-] chooses Codex, Claude Code, or the launch command for a new terminal. Ctrl-N / Ctrl-P switch agent terminals.\nCtrl-W closes the current agent terminal and stops its command.\nCtrl-Q closes stvena and stops all running commands. Ctrl-C interrupts the command.\nReview stays open after commands exit. q closes review once all agents finish.\nRun inside the repository you want to review.")
 		return nil
 	}
 	if len(args) == 1 && args[0] == "sessions" {
@@ -231,6 +231,15 @@ func Run(args []string) error {
 		state.review.AgentStatus = "Review"
 		state.relayout(width, height)
 	}
+	// Start on a usable control before any potentially conflicting shortcut is
+	// needed. Esc gives the agent (or standalone review) normal keyboard input.
+	state.review.FooterFocused = true
+	for i, control := range ui.FooterControls {
+		if control.Action == "?" {
+			state.review.FooterIndex = i
+			break
+		}
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer func() {
 		cancel()
@@ -357,7 +366,7 @@ func Run(args []string) error {
 				lastWelcomeFrame = time.Now()
 				dirty = true
 			}
-			if len(state.pending) > 0 && time.Since(state.lastInput) > 50*time.Millisecond {
+			if (len(state.pending) > 0 || len(state.keyboardPending) > 0) && time.Since(state.lastInput) > 50*time.Millisecond {
 				state.decodeInput(true)
 				if state.dispatch(ctx, events, stop) {
 					return nil
@@ -367,7 +376,7 @@ func Run(args []string) error {
 				dirty = true
 			}
 			if dirty {
-				if wantMouse := state.diffFocused || state.agentPicker != nil; mouseEnabled != wantMouse {
+				if wantMouse := state.diffFocused || state.review.FooterFocused || state.agentPicker != nil; mouseEnabled != wantMouse {
 					mouseEnabled = wantMouse
 					if mouseEnabled {
 						fmt.Fprint(os.Stdout, "\x1b[?1002h\x1b[?1006h")
@@ -403,6 +412,8 @@ type screenState struct {
 	layout                              ui.Layout
 	review                              review.State
 	diffFocused                         bool
+	keyboardPending                     []byte
+	keyboardPasting                     bool
 	pending                             []byte
 	lastInput                           time.Time
 	contentID                           int
@@ -434,11 +445,11 @@ func (s *screenState) visibleLines() int {
 	_, lines := ui.ReviewSize(s.layout.DiffHeight, s.review.FileListCount())
 	return lines
 }
-func (s *screenState) handleInput(data []byte, child io.Writer) {
+func (s *screenState) handleLegacyInput(data []byte, child io.Writer) {
 	if s.pastePending {
 		// Closing the app must also work while a handoff waits for the CLI.
 		for _, b := range data {
-			if b == 0x11 {
+			if s.review.GlobalAction(review.ControlKey(b)) == "Ctrl-Q" {
 				s.review.Request = "quit-app"
 				s.pending, s.pasteInput = nil, nil
 				return
@@ -485,7 +496,19 @@ func (s *screenState) handleInput(data []byte, child io.Writer) {
 			}
 			continue
 		}
-		if b == 0x11 {
+		// A plain Escape leaves the footer before the following text is routed.
+		// Keep that text in this input batch so rapid Esc + typing loses no key.
+		if s.review.FooterFocused && len(s.pending) == 1 && s.pending[0] == 0x1b && b != '[' && b != 'O' {
+			s.pending = nil
+			s.footerKey("esc")
+		}
+		inputKey := review.ControlKey(b)
+		if s.review.EditingGlobalHotkey() && inputKey != "" && b != '\r' && b != '\n' && b != '\t' && b != 0x08 {
+			s.review.InputKey(inputKey, s.visibleLines())
+			continue
+		}
+		action := s.review.GlobalAction(inputKey)
+		if action == "Ctrl-Q" {
 			s.review.Request = "quit-app"
 			s.pending, s.pasteInput = nil, nil
 			return
@@ -497,35 +520,23 @@ func (s *screenState) handleInput(data []byte, child io.Writer) {
 			child = s.agentInput
 			continue
 		}
-		if b == 0x1d || b == 0x0e || b == 0x10 || b == 0x17 {
+		if action == "Ctrl-]" || action == "Ctrl-N" || action == "Ctrl-P" || action == "Ctrl-W" {
 			// Flush preceding text to its original terminal before switching.
 			if len(forward) > 0 {
 				_, _ = child.Write(forward)
 				forward = forward[:0]
 			}
-			s.agentShortcut(b)
+			s.agentShortcut(review.ControlByte(action))
 			if s.agentInput != nil {
 				child = s.agentInput
 			}
 			continue
 		}
-		if b == 0x07 { // Switch focus without discarding the open file or selection.
-			s.pending = nil
-			s.mouseDragging = false
-			s.diffFocused = !s.diffFocused
-			if s.exited {
-				s.diffFocused = true
-			}
-			if !s.diffFocused && s.fullscreen {
-				s.fullscreen = false
-				s.relayout(s.layout.Width, s.layout.Height)
-			}
-			if s.diffFocused && !s.review.PatchFocused {
-				s.review.Browser = true
-			}
+		if action == "Ctrl-G" {
+			s.switchPane()
 			continue
 		}
-		if !s.diffFocused {
+		if !s.diffFocused && !s.review.FooterFocused {
 			if b == '\r' || b == '\n' {
 				if s.review.AgentDraft {
 					s.review.ClearSelection()
@@ -553,6 +564,9 @@ func (s *screenState) handleInput(data []byte, child io.Writer) {
 }
 
 func (s *screenState) decodeInput(flush bool) {
+	if flush {
+		s.flushKeyboardInput()
+	}
 	for len(s.pending) > 0 {
 		key, consumed := "", 1
 		switch s.pending[0] {
@@ -607,8 +621,12 @@ func (s *screenState) decodeInput(flush bool) {
 		s.pending = s.pending[consumed:]
 		if key != "" {
 			s.mouseDragging = false
-			if s.agentPicker != nil {
+			if s.review.FooterFocused {
+				s.footerKey(key)
+			} else if s.agentPicker != nil {
 				s.agentPickerKey(key)
+			} else if key == "down" && s.atFileListEnd() {
+				s.review.FooterFocused, s.review.FooterIndex = true, 0
 			} else {
 				s.review.InputKey(key, s.visibleLines())
 			}
