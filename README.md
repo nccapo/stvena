@@ -99,6 +99,12 @@ stvena sessions
 stvena review --session ID
 ```
 
+**Multiple agent terminals:** Ctrl-] opens a chooser: **c** starts Codex, **l**
+starts Claude Code, and **Enter** repeats your original command with its arguments.
+Run Codex and Claude side by side; Ctrl-N / Ctrl-P switch between them. Background
+agents keep running in the same repository, with one shared review workspace. Ctrl-W closes the current agent
+and stops its command. Ctrl-Q stops them all.
+
 Reopening a review compares a saved baseline with today's workspace; it does
 not resume an agent conversation. Other commands can run in the agent pane,
 but direct selection paste is supported for Codex and Claude Code.
@@ -119,7 +125,10 @@ but direct selection paste is supported for Codex and Claude Code.
 | Key | Action |
 | --- | --- |
 | **Ctrl-G** | Switch between agent and review |
-| **Ctrl-Q** | Quit Stvena and stop the agent |
+| **Ctrl-]** | Open another agent terminal |
+| **Ctrl-N / Ctrl-P** | Next / previous agent terminal |
+| **Ctrl-W** | Close current agent terminal and stop its command |
+| **Ctrl-Q** | Quit Stvena and stop all agents |
 | **1 / 2 / 3** | Session changes / workspace changes / project files |
 | **Enter / f** | Open file / return to file browser |
 | **v** | Toggle diff and full-file view |

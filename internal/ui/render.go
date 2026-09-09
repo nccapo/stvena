@@ -67,7 +67,7 @@ func NewLayoutOptions(width, height, ratio int, fullscreen bool) Layout {
 }
 
 // Render redraws one frame and returns the physical cursor position.
-func Render(w io.Writer, terminal *vt.Emulator, state *review.State, layout Layout, diffFocused, cursorVisible bool) (int, int) {
+func Render(w io.Writer, terminal *vt.Emulator, state *review.State, layout Layout, diffFocused, cursorVisible bool, picker *AgentPicker) (int, int) {
 	rows := make([]string, max(1, layout.Height))
 	for i := range rows {
 		rows[i] = strings.Repeat(" ", max(0, layout.Width))
@@ -75,6 +75,9 @@ func Render(w io.Writer, terminal *vt.Emulator, state *review.State, layout Layo
 	focus := "AGENT"
 	if diffFocused {
 		focus = "REVIEW"
+	}
+	if state.AgentLabel != "" {
+		focus += " · " + safeText(state.AgentLabel)
 	}
 	header := headerBG + bold + " Stvena " + reset + headerBG + "  " + focus + "  · " + safeText(state.AgentStatus) + reset
 	if len(state.Attachments) > 0 {
@@ -124,6 +127,11 @@ func Render(w io.Writer, terminal *vt.Emulator, state *review.State, layout Layo
 			text = controls[y]
 		}
 		rows[layout.FooterY+y] = reviewRow(headerBG+text, layout.Width)
+	}
+
+	if picker != nil {
+		renderAgentPicker(rows, picker, layout)
+		cursorVisible = false
 	}
 
 	var out strings.Builder
@@ -225,7 +233,7 @@ func controlRows(width int, diffFocused bool) []string {
 		}
 		key, label, _ := strings.Cut(control, ":")
 		style := cyan + bold
-		if !diffFocused && i > 0 && !strings.HasPrefix(control, "Ctrl-Q:") {
+		if !diffFocused && i > 0 && !strings.HasPrefix(control, "Ctrl-") {
 			style = muted
 		}
 		row += gap + style + key + reset + headerBG + ":" + label
@@ -234,11 +242,11 @@ func controlRows(width int, diffFocused bool) []string {
 }
 
 func footerControls() []string {
-	return []string{"Ctrl-G: Switch panes", "3: Files", "1: Changes", "2: Workspace", "T: Checks", "B: Context", "b: Add to agent", "a: Actions", "F: Expand", "Ctrl-Q: quit all"}
+	return []string{"Ctrl-G: Switch panes", "Ctrl-]: New agent", "Ctrl-N: Next agent", "Ctrl-P: Previous agent", "Ctrl-W: Close agent", "3: Files", "1: Changes", "2: Workspace", "T: Checks", "B: Context", "b: Add to agent", "a: Actions", "F: Expand", "Ctrl-Q: quit all"}
 }
 func ControlKeyAt(width, x, y int, _ bool) string {
 	row, column := 0, 1
-	keys := []string{"focus", "3", "1", "2", "T", "B", "b", "a", "F", "quit-app"}
+	keys := []string{"focus", "new-agent", "next-agent", "previous-agent", "close-agent", "3", "1", "2", "T", "B", "b", "a", "F", "quit-app"}
 	for i, label := range footerControls() {
 		gap := 0
 		if column > 1 {

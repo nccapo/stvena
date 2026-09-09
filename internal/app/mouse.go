@@ -20,6 +20,15 @@ func (s *screenState) mouse(sequence string) {
 	}
 	x--
 	y--
+	if s.agentPicker != nil {
+		if final == 'M' && button == 0 {
+			if index := ui.AgentPickerChoiceAt(s.agentPicker, s.layout, x, y); index >= 0 {
+				s.agentPicker.Index = index
+				s.agentPickerKey("enter")
+			}
+		}
+		return
+	}
 	if final == 'm' {
 		if s.mouseDragging {
 			s.extendMouseSelection(x, y)
@@ -64,6 +73,8 @@ func (s *screenState) mouse(sequence string) {
 				s.fullscreen = false
 				s.relayout(s.layout.Width, s.layout.Height)
 			}
+		} else if key == "new-agent" || key == "next-agent" || key == "previous-agent" || key == "close-agent" {
+			s.agentShortcut(map[string]byte{"new-agent": 0x1d, "next-agent": 0x0e, "previous-agent": 0x10, "close-agent": 0x17}[key])
 		} else if key == "quit-app" {
 			s.review.Request = key
 		} else if key != "" {
