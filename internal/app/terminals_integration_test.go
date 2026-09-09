@@ -36,6 +36,7 @@ func TestAgentTerminalsEndToEnd(t *testing.T) {
 				fmt.Printf("input:%d:%s\r\n", os.Getpid(), buffer[:n])
 			}
 		}
+		preferencesConfigDir = func() (string, error) { return os.Getenv("STVENA_TEST_CONFIG"), nil }
 		err := Run([]string{os.Args[0], "-test.run=^TestAgentTerminalsEndToEnd$", "--", "agent"})
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -64,7 +65,7 @@ func exerciseAgentTerminals(t *testing.T, width int, helper string) {
 			t.Fatal(err)
 		}
 	}
-	command.Env = append(os.Environ(), helper+"=1", "PATH="+agentBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	command.Env = append(os.Environ(), helper+"=1", "STVENA_TEST_CONFIG="+t.TempDir(), "PATH="+agentBin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	command.Dir = t.TempDir()
 	if output, err := exec.Command("git", "init", "--quiet", command.Dir).CombinedOutput(); err != nil {
 		t.Fatalf("init test repository: %v: %s", err, output)
@@ -135,12 +136,35 @@ func exerciseAgentTerminals(t *testing.T, width int, helper string) {
 	}
 	send := func(text string) {
 		t.Helper()
+		if width == 140 {
+			text = strings.NewReplacer("\x07", "\x1b[103;9u", "\x1d", "\x1b[93;9u", "\x0e", "\x1b[110;9u", "\x10", "\x1b[112;9u", "\x17", "\x1b[119;9u", "\x11", "\x1b[113;9u").Replace(text)
+		}
 		if _, err := ptmx.WriteString(text); err != nil {
 			t.Fatal(err)
 		}
 	}
 	ready := regexp.MustCompile(`ready:(\d+)`)
 	first := ready.FindStringSubmatch(waitFor("ready:"))[1]
+	// Startup offers Configuration without needing Ctrl-G or a function key.
+	if !strings.Contains(screen(), "BOTTOM PANEL") {
+		t.Fatal("startup did not focus the bottom panel")
+	}
+	// Escape lets users start typing immediately; the other width checks the
+	// direct startup route to Configuration.
+	if width == 80 {
+		send("\x1b")
+		send("startup-input")
+		waitFor("input:" + first + ":startup-input")
+		send("\x1b[17~")
+		waitFor("BOTTOM PANEL")
+	}
+	send("\x1b[D\x1b[C\r")
+	waitFor("CONFIGURATION")
+	send("\r\x0f")
+	waitFor("Hotkeys saved for all projects")
+	send("?\x0f")
+	send("\x07released")
+	waitFor("input:" + first + ":released")
 	send("first")
 	waitFor("input:" + first + ":first")
 	send("\x1d")

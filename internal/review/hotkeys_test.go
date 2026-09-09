@@ -114,3 +114,31 @@ func TestHotkeyValidation(t *testing.T) {
 		t.Fatal("reset silently overwrote another shortcut")
 	}
 }
+
+func TestGlobalHotkeyValidationAndCapture(t *testing.T) {
+	for _, key := range []string{"", "r", "F6", "Ctrl-C", "Ctrl-D", "Ctrl-H", "Ctrl-I", "Ctrl-J", "Ctrl-M", "Ctrl-U", "Ctrl-[", "Ctrl-N"} {
+		s := State{}
+		if err := s.SetHotkey("Ctrl-G", key); err == nil {
+			t.Errorf("accepted unavailable or conflicting global shortcut %q", key)
+		}
+	}
+	s := State{Help: true}
+	for i, action := range HotkeyActions {
+		if action.Key == "Ctrl-G" {
+			s.HelpIndex = i
+			break
+		}
+	}
+	s.InputKey("enter", 20)
+	s.InputKey("Ctrl-O", 20)
+	if s.EditingHotkey || s.Binding("Ctrl-G") != "Ctrl-O" || !s.HotkeysDirty {
+		t.Fatal("global shortcut capture failed")
+	}
+	s.InputKey("backspace", 20)
+	if s.Binding("Ctrl-G") != "Ctrl-G" {
+		t.Fatal("reset did not restore global shortcut")
+	}
+	if err := s.SetHotkey("a", "Ctrl-O"); err == nil {
+		t.Fatal("review shortcut accepted a global chord")
+	}
+}

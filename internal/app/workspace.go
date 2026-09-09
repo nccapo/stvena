@@ -112,12 +112,11 @@ func (s *screenState) setCheck(r checks.Result) {
 }
 func (s *screenState) dispatch(ctx context.Context, events chan<- any, stop <-chan struct{}) bool {
 	if s.review.HotkeysDirty {
-		s.review.HotkeysDirty = false
 		s.relayout(s.layout.Width, s.layout.Height)
 		if err := s.savePreferences(); err != nil {
 			s.review.Notice = "Hotkeys active, but could not save: " + err.Error()
 		} else {
-			s.review.Notice = "Hotkeys saved for this repository"
+			s.review.Notice = "Hotkeys saved for all projects"
 		}
 	}
 	r := s.review.Request
@@ -160,7 +159,7 @@ func (s *screenState) dispatch(ctx context.Context, events chan<- any, stop <-ch
 		if !s.agentsRunning() {
 			return true
 		}
-		s.review.Notice = "An agent is still running · Ctrl-Q closes stvena and stops all agents"
+		s.review.Notice = "An agent is still running · " + s.review.Binding("Ctrl-Q") + " closes stvena and stops all agents"
 	case "fullscreen":
 		s.fullscreen = !s.fullscreen
 		s.relayout(s.layout.Width, s.layout.Height)

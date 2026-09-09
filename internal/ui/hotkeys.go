@@ -31,7 +31,7 @@ func renderHelp(s *review.State, width, height int) []string {
 			rows[row] = reviewRow(" "+text, width)
 		}
 	}
-	put(0, headerBG+bold+"REVIEW CONTROLS · Configure hotkeys")
+	put(0, headerBG+bold+"CONFIGURATION · Review and global shortcuts")
 	put(1, "↑/↓: select · Enter / click: change · Esc: back")
 	put(2, muted+"Backspace: reset key · Delete: reset all · * custom")
 	start, count := HelpListWindow(s, height)
@@ -45,12 +45,15 @@ func renderHelp(s *review.State, width, height int) []string {
 		if s.Binding(action.Key) != action.Key {
 			custom = "*"
 		}
-		put(3+i-start, style+fmt.Sprintf("%s%-5s %s %s", marker, review.KeyLabel(s.Binding(action.Key)), custom, action.Name)+reset)
+		put(3+i-start, style+fmt.Sprintf("%s%-7s %s %s", marker, review.KeyLabel(s.Binding(action.Key)), custom, action.Name)+reset)
 	}
-	footer := "Changes save automatically for this repository"
+	footer := "Changes save automatically for all projects"
 	if s.EditingHotkey {
 		action := review.HotkeyActions[s.HelpIndex]
 		footer = "Press a printable key for " + action.Name + " · Esc: cancel"
+		if review.IsGlobalHotkey(action.Key) {
+			footer = "Press a Ctrl key for " + action.Name + " · Esc: cancel"
+		}
 	}
 	if s.Notice != "" {
 		footer = s.Notice

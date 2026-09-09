@@ -193,7 +193,7 @@ func (s *screenState) closeActiveAgent() {
 	}
 	s.review.Notice = "Agent closed"
 	if len(s.agents) == 0 {
-		s.review.Notice += " · Ctrl-]: new agent · q exits"
+		s.review.Notice += " · " + s.review.Binding("Ctrl-]") + ": new agent · q exits"
 	}
 }
 
@@ -211,7 +211,7 @@ func (s *screenState) agentExited(a *agentTerminal, err error) {
 	s.syncAgent()
 	s.diffFocused = true
 	s.review.Browser = true
-	s.review.Notice = "Agent finished · Ctrl-]: new agent · Ctrl-N/P: switch agents"
+	s.review.Notice = "Agent finished · " + s.review.Binding("Ctrl-]") + ": new agent · " + s.review.Binding("Ctrl-N") + "/" + s.review.Binding("Ctrl-P") + ": switch agents"
 	if !s.agentsRunning() {
 		s.review.Notice += " · q exits"
 	}
