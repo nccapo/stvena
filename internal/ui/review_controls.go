@@ -12,10 +12,20 @@ type reviewControl struct{ key, label string }
 func reviewControls(s *review.State) []reviewControl {
 	controls := baseReviewControls(s)
 	if s.Checkpoint != nil {
-		return append([]reviewControl{{"Z", "Z: Finish checkpoint"}, {"P", "P: Resume live"}}, controls...)
-	}
-	if s.Pinned && !s.Selecting {
+		controls = append([]reviewControl{{"Z", "Z: Finish checkpoint"}, {"P", "P: Resume live"}}, controls...)
+	} else if s.Pinned && !s.Selecting {
 		controls = append([]reviewControl{{"P", "P: Resume live"}}, controls...)
+	}
+	return boundControls(s, controls)
+}
+
+func boundControls(s *review.State, controls []reviewControl) []reviewControl {
+	for i := range controls {
+		c := &controls[i]
+		if key := s.Binding(c.key); key != c.key {
+			_, label, _ := strings.Cut(c.label, ":")
+			c.label = review.KeyLabel(key) + ":" + label
+		}
 	}
 	return controls
 }
@@ -137,6 +147,10 @@ func selectionSummary(s *review.State) string {
 }
 
 func panelControls(s *review.State) []reviewControl {
+	return boundControls(s, basePanelControls(s))
+}
+
+func basePanelControls(s *review.State) []reviewControl {
 	switch s.Panel {
 	case "Checkpoint draft":
 		return []reviewControl{{"b", "b: Paste / export"}, {"y", "y: Copy"}, {"i", "i: Request"}, {"esc", "Esc: Review"}}

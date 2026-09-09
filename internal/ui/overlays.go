@@ -39,10 +39,7 @@ func renderOverlay(s *review.State, width, height int) []string {
 		start := min(max(0, s.MenuIndex-count/2), max(0, len(review.Actions)-count))
 		for i := start; i < min(len(review.Actions), start+count); i++ {
 			a := review.Actions[i]
-			key := a.Key
-			if key == " " {
-				key = "Space"
-			}
+			key := review.KeyLabel(s.Binding(a.Key))
 			style := ""
 			marker := "  "
 			if i == s.MenuIndex {
