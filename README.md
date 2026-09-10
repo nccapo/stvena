@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="extensions/vscode/media/icon.png" alt="Stvena icon" width="128" height="128">
+</p>
+
 # Stvena
 
 **Stop reopening your IDE just to review what your coding agent changed.**
@@ -13,6 +17,7 @@ https://github.com/user-attachments/assets/7aecafe5-1e45-442e-ab49-82cfc3750d9f
 [![CI](https://github.com/nccapo/stvena/actions/workflows/ci.yml/badge.svg)](https://github.com/nccapo/stvena/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Latest release](https://img.shields.io/github/v/release/nccapo/stvena)](https://github.com/nccapo/stvena/releases/latest)
+[![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/nccapo.stvena-live?label=VS%20Code)](https://marketplace.visualstudio.com/items?itemName=nccapo.stvena-live)
 
 Built in Go. Designed for terminal workflows with Codex and Claude Code.
 **Early-stage software:** interfaces and local storage formats may change.
@@ -201,7 +206,7 @@ in standalone `stvena review` mode.
 
 ## Follow reads and edits in VS Code
 
-An experimental [Stvena Live extension](extensions/vscode/README.md) follows
+The experimental [Stvena Live extension](https://marketplace.visualstudio.com/items?itemName=nccapo.stvena-live) follows
 captured edits in the editor while Stvena runs in its integrated terminal. It
 opens working source files at the changed line, lists the latest changed files,
 and lets you pause and resume following. Supported Codex and Claude tool hooks
@@ -209,20 +214,40 @@ also report read locations. Blue read markers and amber edit markers show the
 relevant lines with an inline label; markers expire after 15 seconds. Codex
 requires its normal `/hooks` trust review before read reporting runs.
 
-Download the binary and `stvena-live-0.2.0.vsix` from the
-[GitHub preview release](https://github.com/nccapo/stvena/releases/tag/v0.2.0-preview.1).
-Install the preview binary on macOS or Linux:
+Install **Stvena Live** by **nccapo** from the VS Code Extensions view, or run:
+
+```sh
+code --install-extension nccapo.stvena-live
+```
+
+Then install the compatible Stvena binary on macOS or Linux. The extension and
+terminal application are installed separately; editor following requires the
+[v0.2.0-preview.1 binary](https://github.com/nccapo/stvena/releases/tag/v0.2.0-preview.1)
+or a current source build:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/nccapo/stvena/v0.2.0-preview.1/install.sh | \
   STVENA_VERSION=v0.2.0-preview.1 sh
 ```
 
-In VS Code or Antigravity, install the downloaded `.vsix` with
-**Extensions: Install from VSIX…**, open a trusted local Git workspace, and run
-`stvena` in its integrated terminal. No Go or Node.js installation is needed.
-The preview is not yet published to a marketplace; the default Stvena installer
-still selects the stable release, so use the explicit preview version above.
+Open a trusted local Git workspace in VS Code, check that `stvena --version`
+reports `0.2.0-preview.1`, and run `stvena` or `stvena claude` in its integrated
+terminal. No Go or Node.js installation is needed. The default Stvena installer
+selects the stable release, which predates the editor bridge, so use the explicit
+preview version above.
+
+Stvena Live **0.2.1** includes the Stvena icon in its extension listing. Marketplace
+installations receive updates through VS Code according to your update settings.
+For Antigravity or manual installation, use **Extensions: Install from VSIX…**;
+the original GitHub preview includes extension **0.2.0**, and a current source
+build produces **0.2.1**. See the [extension guide](extensions/vscode/README.md)
+for both installation paths and troubleshooting.
+
+Click **Stvena: Following** in the status bar to pause or resume navigation;
+**Stvena: Show Latest Activity** returns to the latest reported read or edit.
+If the view stays **Waiting**, check the binary version and workspace trust,
+and open **Stvena Live** in the Output panel for connection errors.
+
 The extension targets VS Code 1.85 or newer. It reads saved
 file captures from the repository's Git directory; it does not run commands,
 write source, add telemetry, or expose a network service.

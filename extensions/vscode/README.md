@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="media/icon.png" alt="Stvena Live icon" width="128" height="128">
+</p>
+
 # Stvena Live
 
 Run Stvena in your editor's integrated terminal and follow agent reads and saved
@@ -6,28 +10,54 @@ Blue eye markers identify reported read ranges; amber pencil markers identify
 changed lines. Both include a line tint, an inline label, and a scrollbar marker.
 Markers expire after 15 seconds and clear on pause, disconnect, or unsaved edits.
 
-## Install the GitHub preview
+## Install from the VS Code Marketplace
 
-Requires Git, macOS or Linux, and VS Code or Antigravity. Install both parts from
-the [v0.2.0-preview.1 release](https://github.com/nccapo/stvena/releases/tag/v0.2.0-preview.1):
+Requires Git, macOS or Linux, VS Code 1.85 or newer, and an installed,
+authenticated Codex or Claude Code CLI. Install both the extension and the
+compatible Stvena terminal application:
 
-1. Install the compatible Stvena binary:
+1. Install [Stvena Live by nccapo](https://marketplace.visualstudio.com/items?itemName=nccapo.stvena-live)
+   from the Extensions view, or run:
+
+   ```sh
+   code --install-extension nccapo.stvena-live
+   ```
+
+2. Install the compatible Stvena binary:
 
    ```sh
    curl -fsSL https://raw.githubusercontent.com/nccapo/stvena/v0.2.0-preview.1/install.sh | \
      STVENA_VERSION=v0.2.0-preview.1 sh
    ```
 
-2. Download `stvena-live-0.2.0.vsix` from the same release. In either editor's
-   Command Palette, run **Extensions: Install from VSIX…** and select it.
 3. Open a trusted local Git project. In the integrated terminal, check
-   `stvena --version` reports `0.2.0-preview.1`, then run `stvena`.
+   `stvena --version` reports `0.2.0-preview.1`, then run `stvena` for Codex or
+   `stvena claude` for Claude Code.
 4. Ask your agent to edit and save a file. **Stvena Live** in Explorer lists the
    captured edit and opens its source location while focus stays in the terminal.
 
 No Go or Node.js installation is needed. Use the version above explicitly:
 the default installer selects the stable release, which predates this bridge.
-Preview VSIX updates are manual: download and install the next release's VSIX.
+Marketplace installations receive extension updates through VS Code according
+to your update settings. Update the Stvena binary separately when upgrading it.
+
+### Manual installation and Antigravity
+
+Download `stvena-live-0.2.0.vsix` from the
+[original GitHub preview](https://github.com/nccapo/stvena/releases/tag/v0.2.0-preview.1),
+or [build the current extension from source](#build-from-source). In VS Code or
+Antigravity's Command Palette, run **Extensions: Install from VSIX…** and select
+the package, then follow the binary installation and startup steps above.
+The original preview contains extension **0.2.0**; the current source package is
+**0.2.1**. To update a manually installed VSIX, install the newer package.
+
+## What's new in 0.2.1
+
+Stvena Live now displays the Stvena icon in its extension listing. This release
+retains the read and saved-edit following features introduced in 0.2.0 and works
+with the v0.2.0-preview.1 Stvena binary. See the [changelog](CHANGELOG.md).
+
+## Troubleshooting
 
 If the view stays **Waiting**, check the binary version, workspace trust, and
 that Stvena is running in the same Git project. Use **Stvena Live** in the Output
@@ -46,6 +76,8 @@ saved-edit following works independently of them.
 5. Ask your agent to edit a file. **Stvena Live** in Explorer lists the latest
    captured batch; selecting a file opens its working source at the changed line.
 
+## Using Stvena Live
+
 Click **Stvena: Following** in the status bar to pause automatic navigation.
 Navigation pauses while the activity list and saved source continue updating.
 Click again to resume. **Stvena: Show Latest Activity** opens the latest read or changed file.
@@ -54,7 +86,8 @@ Automatic following skips unsaved buffers so their content and cursor stay intac
 ## Following reads
 
 Stvena adds a `PostToolUse` observer to standard `stvena codex` and `stvena claude`
-launches, including new agent terminals. Rebuild Stvena as well as the extension.
+launches, including new agent terminals. Use the compatible preview binary above
+or, when building from source, rebuild Stvena as well as the extension.
 For Codex versions with hooks, open `/hooks` and review/trust the Stvena observer
 when prompted. Stvena does not bypass hook trust or tool permissions. Hooks must
 be enabled by the agent; managed restrictions, safe/bare modes, and older agent
