@@ -2,12 +2,15 @@ package app
 
 import (
 	"fmt"
+	"github.com/nccapo/stvena/internal/attention"
+	"github.com/nccapo/stvena/internal/diffview"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/vt"
@@ -18,6 +21,10 @@ import (
 // Each command owns its screen and PTY. Only the event loop touches screen state.
 type agentTerminal struct {
 	name                          string
+	label                         string
+	attention                     attention.State
+	attentionStop                 chan struct{}
+	reviewFiles                   map[string]diffview.File
 	virtual                       *vt.Emulator
 	ptmx                          *os.File
 	input                         io.Writer
@@ -28,7 +35,7 @@ type agentTerminal struct {
 }
 
 func newAgentTerminal(name string, width, height int) *agentTerminal {
-	a := &agentTerminal{name: name, virtual: vt.NewEmulator(width, height), cursorVisible: true, status: "Running"}
+	a := &agentTerminal{name: name, attention: attention.State{Execution: attention.Idle}, virtual: vt.NewEmulator(width, height), cursorVisible: true, status: "Running", attentionStop: make(chan struct{}), reviewFiles: map[string]diffview.File{}}
 	// PTY output queued during resize can still specify the old scroll margins.
 	// Clamp before vt's default handlers store them and scroll outside the buffer.
 	// Remove when our vt version includes https://github.com/charmbracelet/x/pull/908.
@@ -102,6 +109,7 @@ func (s *screenState) activeAgent() *agentTerminal {
 }
 
 func (s *screenState) syncAgent() {
+	defer s.syncAttention()
 	if a := s.activeAgent(); a != nil {
 		s.agentInput, s.agentName = a.input, agentCommand(a.name)
 		s.exited, s.bracketedPaste = a.exited, a.bracketedPaste
@@ -119,6 +127,7 @@ func (s *screenState) selectAgent(index int) {
 	if a := s.activeAgent(); a != nil {
 		a.draft = s.review.AgentDraft
 	}
+	s.attentionPrevious = nil
 	s.activeAgentIndex = index
 	s.syncAgent()
 	if a := s.activeAgent(); a != nil {
@@ -136,7 +145,9 @@ func (s *screenState) agentShortcut(key byte) {
 		s.review.Notice = "Agent terminals are available when launching stvena with a command"
 		return
 	}
-	if key == 0x17 {
+	if key == 0x19 {
+		s.nextAttention()
+	} else if key == 0x17 {
 		s.closeActiveAgent()
 	} else if key == 0x1d {
 		s.pending = nil
@@ -220,7 +231,13 @@ func (s *screenState) agentExited(a *agentTerminal, err error) {
 	if a.closed {
 		return
 	}
+	before := a.attention.Priority()
+	a.attention.Exit(err != nil, time.Now())
+	s.attentionChanged(a, before)
 	a.exited, a.status = true, "Finished"
+	if a.attention.Execution == attention.Error {
+		a.status = "Turn failed"
+	}
 	if err != nil {
 		a.status = "Exited: " + err.Error()
 	}
@@ -228,9 +245,7 @@ func (s *screenState) agentExited(a *agentTerminal, err error) {
 		return
 	}
 	s.syncAgent()
-	s.diffFocused = true
-	s.review.Browser = true
-	s.review.Notice = "Agent finished · " + s.review.Binding("Ctrl-]") + ": new agent · " + s.review.Binding("Ctrl-N") + "/" + s.review.Binding("Ctrl-P") + ": switch agents"
+	s.review.Notice = a.status + " · " + s.review.Binding("Ctrl-]") + ": new agent · " + s.review.Binding("Ctrl-N") + "/" + s.review.Binding("Ctrl-P") + ": switch agents"
 	if !s.agentsRunning() {
 		s.review.Notice += " · q exits"
 	}

@@ -52,7 +52,44 @@ You need **Git**, an interactive terminal, and your chosen agent CLI installed
 and authenticated. Stvena uses Unix PTYs and process groups; macOS and Linux are
 the intended platforms. Native Windows is not supported.
 
-### Prebuilt binary (recommended)
+### Homebrew (macOS and Linux)
+
+With Homebrew installed, run:
+
+```sh
+brew install nccapo/stvena/stvena
+stvena --version
+```
+
+This taps [nccapo/homebrew-stvena](https://github.com/nccapo/homebrew-stvena),
+trusts only the `stvena` formula, and installs a prebuilt binary verified against
+the release's SHA-256 checksum. No Go installation is required. The formula
+supports Apple Silicon and Intel Macs, plus ARM64 and amd64 Linux systems.
+Install and authenticate Codex or Claude Code separately before launching Stvena.
+
+The tap tracks stable releases by default. To upgrade or uninstall:
+
+```sh
+brew upgrade stvena
+brew uninstall stvena
+```
+
+Preview releases are not installed automatically. For the editor integration
+preview, follow [Follow reads and edits in VS Code](#follow-reads-and-edits-in-vs-code).
+
+If you previously used `install.sh` and Homebrew reports an existing binary in
+`/opt/homebrew/bin` or `/usr/local/bin`, locate it first:
+
+```sh
+command -v stvena
+```
+
+Remove that manually installed Stvena binary if it occupies Homebrew's target
+path, then rerun `brew install nccapo/stvena/stvena`. See the
+[tap documentation](https://github.com/nccapo/homebrew-stvena#coming-from-installsh)
+for migration details.
+
+### Install script (macOS and Linux)
 
 No Go installation is required:
 
@@ -78,9 +115,6 @@ To choose the installation directory or install a specific release:
 curl -fsSL https://raw.githubusercontent.com/nccapo/stvena/main/install.sh | \
   STVENA_INSTALL_DIR="$HOME/.local/bin" STVENA_VERSION=v0.1.0 sh
 ```
-
-Homebrew is not required. A dedicated Homebrew tap is not published yet, so the
-verified installer is currently the shortest supported installation path.
 
 ### Install with Go or build from source
 
@@ -144,6 +178,7 @@ but direct selection paste is supported for Codex and Claude Code.
 | **Ctrl-G** | Switch between agent and review |
 | **Ctrl-]** | Open another agent terminal |
 | **Ctrl-N / Ctrl-P** | Next / previous agent terminal |
+| **Ctrl-Y** | Next attention: error, review, waiting, changed, running, done |
 | **Ctrl-W** | Close current agent terminal and stop its command |
 | **Ctrl-Q** | Quit Stvena and stop all agents |
 | **1 / 2 / 3** | Session changes / workspace changes / project files |
@@ -203,6 +238,60 @@ inspection. Closing the last agent leaves the review workspace open, where
 Agent terminals are live processes rather than saved conversations. Reopening a
 saved review does not restart them, and multiple-agent shortcuts are unavailable
 in standalone `stvena review` mode.
+
+## Agent attention
+
+A compact strip above the panes shows every terminal's stable name and status:
+`● RUNNING`, `! REVIEW`, `? WAITING`, `+ CHANGED`, `✓ DONE`, `× ERROR`, or
+`· IDLE`. Brackets identify the active terminal; `→` identifies the highest
+attention priority. Color reinforces these text labels. `3f` always means three
+unreviewed file paths (a rename can include both paths). `/ RUN` means the agent is still working while it needs review.
+The header counts agents, running agents, agents with unreviewed files, waiting
+agents, and errors. The strip uses at most two rows; overflow keeps the highest
+priority agent visible and shows how many other agents are hidden.
+
+**Ctrl-Y** (Next attention) starts at the highest priority and cycles through
+error → review → waiting → changed → running → done. Normal terminal navigation
+resets the cycle. Configure it in **? → Configuration**, like the other global
+shortcuts; the footer also provides Next attention. Command-Y is an optional
+alias when the terminal forwards it. No background event switches panes.
+
+Selecting attention opens the relevant file in **This session** when possible.
+An existing pinned checkpoint or unfinished review input stays intact. The
+normal **e** editor action then opens that file; the live editor bridge continues
+to publish combined workspace changes.
+
+**REVIEW clears only after Space marks the captured file reviewed, or H marks
+all its hunks reviewed, in This session or a session checkpoint.** Opening the
+agent or diff does not acknowledge it. Reviewing an older pinned version does
+not clear newer changes. An acknowledged session stays clear when another agent
+later edits the same path. New edits by the original agent create new review
+items. If edits are reverted before capture, Next attention offers an explicit
+no-net-change acknowledgement. Closing a terminal removes its live indicators;
+its changes and existing review records remain in the shared workspace.
+
+Execution, review, activity time and changed-file ownership are separate state.
+Attention priority is derived from them. Invocation-local observers use
+[Claude hooks](https://code.claude.com/docs/en/hooks) and
+[Codex hooks](https://developers.openai.com/codex/hooks): prompt/tool events mark
+running, Stop marks a completed turn, Claude StopFailure and unsuccessful process
+exits mark error. Claude permission/idle notifications provide waiting signals.
+Without structured hooks, PTY output means running; three seconds without output
+means idle, **never** waiting or completed. A successful process exit means done.
+
+File attribution compares named files before and after Claude Edit/Write/MultiEdit
+or Codex apply_patch calls, including additions, deletions and renames. The git
+snapshot watcher then supplies captured review versions. Arbitrary shell/MCP
+writes and commands without hooks cannot be reliably attributed in a shared
+working directory; they remain visible in the combined diff without assigning
+an owner. Concurrent edits to the same file are reviewed against its combined
+captured diff. Git-ignored files are outside the normal diff capture.
+
+Codex must support and trust the configured hooks. Explicit Claude `--settings`
+are preserved, so automatic observers are not added in that case. Codex waiting
+prompts and CLI turn failures without a supported event cannot be detected
+reliably; Stvena does not infer them from terminal text. Live attention state is
+not restored after restarting Stvena; saved review records continue to work.
 
 ## Follow reads and edits in VS Code
 

@@ -109,7 +109,7 @@ func (s *screenState) flushKeyboardInput() {
 	}
 }
 
-// commandShortcut maps only the six global shortcuts. Unknown sequences and
+// commandShortcut maps the global shortcuts. Unknown sequences and
 // additional modifiers retain their original bytes; key releases are consumed.
 func commandShortcut(sequence []byte) (byte, bool) {
 	if !bytes.HasPrefix(sequence, []byte("\x1b[")) || sequence[len(sequence)-1] != 'u' {
@@ -142,6 +142,8 @@ func commandShortcut(sequence []byte) (byte, bool) {
 		control = 0x10
 	case 'w':
 		control = 0x17
+	case 'y':
+		control = 0x19
 	case 'q':
 		control = 0x11
 	default:

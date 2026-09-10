@@ -90,7 +90,7 @@ func TestRecordHook(t *testing.T) {
 func TestHookArgs(t *testing.T) {
 	args := []string{"codex", "resume", "--last"}
 	got := HookArgs(args, "/tmp/agent's dir/stvena")
-	if got[1] != "-c" || !strings.Contains(got[2], "hooks.PostToolUse") || !reflect.DeepEqual(got[3:], args[1:]) {
+	if got[1] != "-c" || !strings.Contains(got[2], "hooks.PostToolUse") || !reflect.DeepEqual(got[len(got)-len(args)+1:], args[1:]) {
 		t.Fatal(got)
 	}
 	claude := HookArgs([]string{"claude", "--resume"}, "/tmp/stvena")

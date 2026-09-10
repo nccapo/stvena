@@ -42,21 +42,28 @@ func HookArgs(args []string, executable string) []string {
 	name := filepath.Base(args[0])
 	command := "'" + strings.ReplaceAll(executable, "'", "'\"'\"'") + "' editor-hook"
 	extra := []string{}
+	events := []string{"PostToolUse", "PreToolUse", "SessionStart", "UserPromptSubmit", "Stop"}
 	switch name {
 	case "codex":
-		extra = []string{"-c", "hooks.PostToolUse=[{matcher=\"Bash|Read\",hooks=[{type=\"command\",command=" + strconv.Quote(command) + ",timeout=2}]}]"}
+		for _, event := range events {
+			extra = append(extra, "-c", "hooks."+event+"=[{hooks=[{type=\"command\",command="+strconv.Quote(command)+",timeout=2}]}]")
+		}
 	case "claude":
 		for _, arg := range args[1:] {
 			if arg == "--settings" || strings.HasPrefix(arg, "--settings=") {
 				return args
 			}
 		}
-		config := map[string]any{"hooks": map[string]any{"PostToolUse": []any{map[string]any{"matcher": "Read|Bash", "hooks": []any{map[string]any{"type": "command", "command": command, "timeout": 2}}}}}}
-		data, _ := json.Marshal(config)
+		hooks := map[string]any{}
+		for _, event := range append(events, "Notification", "StopFailure", "PostToolUseFailure") {
+			hooks[event] = []any{map[string]any{"hooks": []any{map[string]any{"type": "command", "command": command, "timeout": 2}}}}
+		}
+		data, _ := json.Marshal(map[string]any{"hooks": hooks})
 		extra = []string{"--settings", string(data)}
 	default:
 		return args
 	}
+
 	return append(append([]string{args[0]}, extra...), args[1:]...)
 }
 
