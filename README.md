@@ -29,6 +29,12 @@ If Stvena saves you from the "open the IDE just for the diff" loop, consider
 - **Give the agent precise context.** Select code with the mouse or keyboard,
   collect snippets across files, and paste an assembled draft into the agent.
   You decide when to submit it.
+- **Run multiple agents at once.** Keep independent Codex and Claude Code
+  terminals running, switch between them, and review their combined changes in
+  one workspace.
+- **Follow saved edits in your editor.** The experimental Stvena Live extension
+  lists each newly captured batch and opens the working source at its first
+  changed line while focus stays in the integrated terminal.
 - **Keep track of your review.** Pin a captured version, mark files and hunks
   reviewed, and see when a reviewed change has changed again.
 - **Check the code you are looking at.** Run a command in a temporary checkout
@@ -105,9 +111,9 @@ forwards them; see [terminal shortcut setup](docs/usage.md#command-keys-in-your-
 
 **Multiple agent terminals:** Ctrl-] opens a chooser: **c** starts Codex, **l**
 starts Claude Code, and **Enter** repeats your original command with its arguments.
-Run Codex and Claude side by side; Ctrl-N / Ctrl-P switch between them. Background
-agents keep running in the same repository, with one shared review workspace. Ctrl-W closes the current agent
-and stops its command. Ctrl-Q stops them all.
+Ctrl-N / Ctrl-P switch between terminals while background agents keep running.
+See [Work with multiple agents](#work-with-multiple-agents) for the complete
+workflow.
 
 Reopening a review compares a saved baseline with today's workspace; it does
 not resume an agent conversation. Other commands can run in the agent pane,
@@ -165,6 +171,72 @@ file, and **c** or **x** to save exact-line comments or selections across files.
 standalone review. **P** resumes live; changed items need review again. An open
 checkpoint and its feedback survive reopening a saved review.
 
+## Work with multiple agents
+
+Stvena can run several agent terminals in one session. Each terminal keeps its
+own screen, conversation, and unfinished input. The agent pane shows one terminal
+at a time, and the header identifies the active command and its position, such as
+`codex 1/2`. Other agents continue running in the background.
+
+Press **Ctrl-]** from either pane to open the new-agent chooser:
+
+- **c** starts Codex with its CLI defaults.
+- **l** starts Claude Code with its CLI defaults.
+- **Enter** starts the selected option. The initial option repeats the command
+  used to launch Stvena, including its arguments.
+
+Every new terminal starts in the original working directory. All agents share
+the same session baseline and review workspace, so changes from every agent
+appear together. Code selections and review drafts are pasted into the currently
+selected agent.
+
+Use **Ctrl-N** and **Ctrl-P** to move between agent terminals. **Ctrl-W** stops
+and closes the selected agent; finished terminals otherwise remain available for
+inspection. Closing the last agent leaves the review workspace open, where
+**Ctrl-]** can start another. **Ctrl-Q** stops every agent and exits Stvena.
+
+Agent terminals are live processes rather than saved conversations. Reopening a
+saved review does not restart them, and multiple-agent shortcuts are unavailable
+in standalone `stvena review` mode.
+
+## Follow reads and edits in VS Code
+
+An experimental [Stvena Live extension](extensions/vscode/README.md) follows
+captured edits in the editor while Stvena runs in its integrated terminal. It
+opens working source files at the changed line, lists the latest changed files,
+and lets you pause and resume following. Supported Codex and Claude tool hooks
+also report read locations. Blue read markers and amber edit markers show the
+relevant lines with an inline label; markers expire after 15 seconds. Codex
+requires its normal `/hooks` trust review before read reporting runs.
+
+Download the binary and `stvena-live-0.2.0.vsix` from the
+[GitHub preview release](https://github.com/nccapo/stvena/releases/tag/v0.2.0-preview.1).
+Install the preview binary on macOS or Linux:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/nccapo/stvena/v0.2.0-preview.1/install.sh | \
+  STVENA_VERSION=v0.2.0-preview.1 sh
+```
+
+In VS Code or Antigravity, install the downloaded `.vsix` with
+**Extensions: Install from VSIX…**, open a trusted local Git workspace, and run
+`stvena` in its integrated terminal. No Go or Node.js installation is needed.
+The preview is not yet published to a marketplace; the default Stvena installer
+still selects the stable release, so use the explicit preview version above.
+The extension targets VS Code 1.85 or newer. It reads saved
+file captures from the repository's Git directory; it does not run commands,
+write source, add telemetry, or expose a network service.
+
+Updates are snapshots sampled roughly every 700 ms plus capture and extension
+polling time. They include saved edits from every workspace writer, without
+per-agent attribution or guaranteed intermediate history. Automatic navigation
+skips deleted files and files with unsaved editor changes.
+
+The first target is the VS Code extension API. Zed requires a separate
+integration. See the extension guide for installation, compatibility, and
+capture limits, or the [bridge protocol](docs/editor-integration.md) to build
+another local editor integration.
+
 ## Privacy and local data
 
 Stvena does not require its own API key or account. It launches the agent CLI
@@ -202,6 +274,11 @@ go test ./...
 go test -race ./...
 go vet ./...
 go build ./...
+
+cd extensions/vscode
+npm ci
+npm test
+npm run package
 ```
 
 Maintainers publish the prebuilt archives and checksums by pushing a semantic
@@ -216,7 +293,9 @@ release command and verification steps.
 | `internal/session` | Snapshot capture, retained refs, and session storage |
 | `internal/review` | Navigation, selections, review marks, and feedback |
 | `internal/checks` | Check execution, bounded logs, and problem locations |
+| `internal/editor` | Local editor bridge and captured-change protocol |
 | `internal/ui` | Terminal layout, code rendering, and controls |
+| `extensions/vscode` | Stvena Live editor navigation and latest-change view |
 
 The [product direction](docs/product-direction.md) and
 [research notes](docs/competitive-research.md) describe ideas and tradeoffs;

@@ -1,0 +1,113 @@
+{
+  "name": "stvena-live",
+  "displayName": "Stvena Live",
+  "description": "Follow agent reads and edits with live source navigation and line highlights.",
+  "version": "0.2.0",
+  "publisher": "nccapo",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nccapo/stvena.git",
+    "directory": "extensions/vscode"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./src/extension.js",
+  "extensionKind": [
+    "workspace"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false
+    },
+    "virtualWorkspaces": {
+      "supported": false
+    }
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "package": "vsce package --no-dependencies --baseContentUrl https://github.com/nccapo/stvena/blob/${STVENA_SOURCE_REF:-main}/extensions/vscode --baseImagesUrl https://raw.githubusercontent.com/nccapo/stvena/${STVENA_SOURCE_REF:-main}/extensions/vscode"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "stvena.toggleFollow",
+        "title": "Stvena: Pause / Resume Following",
+        "icon": "$(debug-pause)"
+      },
+      {
+        "command": "stvena.showLatest",
+        "title": "Stvena: Show Latest Activity",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "stvena.openChange",
+        "title": "Stvena: Open Captured Edit"
+      }
+    ],
+    "views": {
+      "explorer": [
+        {
+          "id": "stvena.changes",
+          "name": "Stvena Live"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "stvena.changes",
+        "contents": "Run **stvena** in this project's terminal. Reported reads and captured edits will appear here.\n[Show latest activity](command:stvena.showLatest)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "stvena.toggleFollow",
+          "when": "view == stvena.changes",
+          "group": "navigation"
+        },
+        {
+          "command": "stvena.showLatest",
+          "when": "view == stvena.changes",
+          "group": "navigation"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "stvena.openChange",
+          "when": "false"
+        }
+      ]
+    },
+    "colors": [
+      {
+        "id": "stvena.readBackground",
+        "description": "Background of the latest agent read range.",
+        "defaults": {
+          "dark": "#3794ff20",
+          "light": "#007acc18",
+          "highContrast": "#3794ff30"
+        }
+      },
+      {
+        "id": "stvena.editBackground",
+        "description": "Background of the latest captured edit range.",
+        "defaults": {
+          "dark": "#cca70020",
+          "light": "#b8950018",
+          "highContrast": "#cca70030"
+        }
+      }
+    ]
+  },
+  "devDependencies": {
+    "@vscode/vsce": "^3.9.2"
+  }
+}

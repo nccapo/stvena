@@ -27,6 +27,8 @@ archives:
 
 checksum:
   name_template: checksums.txt
+  extra_files:
+    - glob: ./extensions/vscode/stvena-live-*.vsix
 
 changelog:
   sort: asc
@@ -37,3 +39,5 @@ changelog:
 
 release:
   prerelease: auto
+  extra_files:
+    - glob: ./extensions/vscode/stvena-live-*.vsix

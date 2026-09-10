@@ -29,6 +29,17 @@ type agentTerminal struct {
 
 func newAgentTerminal(name string, width, height int) *agentTerminal {
 	a := &agentTerminal{name: name, virtual: vt.NewEmulator(width, height), cursorVisible: true, status: "Running"}
+	// PTY output queued during resize can still specify the old scroll margins.
+	// Clamp before vt's default handlers store them and scroll outside the buffer.
+	// Remove when our vt version includes https://github.com/charmbracelet/x/pull/908.
+	a.virtual.RegisterCsiHandler('r', func(params ansi.Params) bool {
+		clampScrollMargin(params, a.virtual.Height())
+		return false // Let vt apply the margins and update the cursor normally.
+	})
+	a.virtual.RegisterCsiHandler('s', func(params ansi.Params) bool {
+		clampScrollMargin(params, a.virtual.Width())
+		return false // Also preserves CSI s cursor saving when margin mode is off.
+	})
 	a.virtual.SetCallbacks(vt.Callbacks{
 		CursorVisibility: func(visible bool) { a.cursorVisible = visible },
 		EnableMode: func(mode ansi.Mode) {
@@ -45,10 +56,18 @@ func newAgentTerminal(name string, width, height int) *agentTerminal {
 	return a
 }
 
-func startAgentTerminal(args []string, cwd string, layout ui.Layout, events chan<- any, stop <-chan struct{}) (*agentTerminal, error) {
+func clampScrollMargin(params ansi.Params, limit int) {
+	// Params shares the parser's storage, including the bottom margin that vt
+	// reads directly from its parser. Leave missing/zero defaults untouched.
+	if value, more, ok := params.Param(1, limit); ok && value > limit {
+		params[1] = ansi.Param(ansi.Parameter(limit, more))
+	}
+}
+
+func startAgentTerminal(args []string, cwd string, layout ui.Layout, events chan<- any, stop <-chan struct{}, extraEnv ...string) (*agentTerminal, error) {
 	command := exec.Command(args[0], args[1:]...)
 	command.Dir = cwd
-	command.Env = withTerminalEnv(os.Environ())
+	command.Env = append(withTerminalEnv(os.Environ()), extraEnv...)
 	ptmx, err := pty.StartWithSize(command, &pty.Winsize{Cols: uint16(layout.LeftWidth), Rows: uint16(layout.LeftHeight)})
 	if err != nil {
 		return nil, fmt.Errorf("start %s: %w", args[0], err)

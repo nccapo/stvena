@@ -11,7 +11,7 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
@@ -22,8 +22,29 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Test
-        run: go test ./...
-      - name: Release binaries
+        run: |
+          test -z "$(gofmt -l cmd internal)"
+          sh -n install.sh
+          go vet ./...
+          go test -race ./...
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: extensions/vscode/package-lock.json
+      - name: Test and package editor extension
+        working-directory: extensions/vscode
+        env:
+          STVENA_SOURCE_REF: ${{ github.ref_name }}
+        run: |
+          npm ci
+          npm test
+          if [[ "$STVENA_SOURCE_REF" == *-* ]]; then
+            npm run package -- --pre-release
+          else
+            npm run package
+          fi
+      - name: Release binaries and VSIX
         uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser

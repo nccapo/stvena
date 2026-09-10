@@ -20,6 +20,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/vt"
 	"github.com/nccapo/stvena/internal/diffview"
+	"github.com/nccapo/stvena/internal/editor"
 	"github.com/nccapo/stvena/internal/review"
 	"github.com/nccapo/stvena/internal/ui"
 	"golang.org/x/term"
@@ -61,6 +62,11 @@ type contentEvent struct {
 
 // Run starts the requested agent command. With no arguments it runs Codex.
 func Run(args []string) error {
+	if len(args) == 1 && args[0] == "editor-hook" {
+		// Observers must never block an agent operation on a display failure.
+		_ = editor.RecordHook(os.Stdin)
+		return nil
+	}
 	if len(args) == 1 && args[0] == "--version" {
 		fmt.Fprintln(os.Stdout, "stvena "+Version)
 		return nil
@@ -147,7 +153,15 @@ func Run(args []string) error {
 	if !standalone {
 		state.launchCommand = append([]string(nil), args...)
 		state.startAgent = func(args []string, layout ui.Layout) (*agentTerminal, error) {
-			return startAgentTerminal(args, cwd, layout, events, stop)
+			var env []string
+			if savedSession != nil {
+				if executable, err := os.Executable(); err == nil {
+					env = []string{"STVENA_ACTIVITY_PATH=" + editor.ActivityPath(savedSession), "STVENA_ROOT=" + root,
+						"STVENA_SESSION=" + savedSession.ID, "STVENA_AGENT=" + filepath.Base(args[0])}
+					args = editor.HookArgs(args, executable)
+				}
+			}
+			return startAgentTerminal(args, cwd, layout, events, stop, env...)
 		}
 		a, err := state.startAgent(args, layout)
 		if err != nil {
