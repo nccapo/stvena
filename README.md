@@ -11,7 +11,7 @@ Inspect every changed file, read the surrounding code, run checks, select exact
 lines, and send that context straight back to the agent.
 
 <!-- demo:start -->
-https://github.com/user-attachments/assets/7aecafe5-1e45-442e-ab49-82cfc3750d9f
+https://github.com/user-attachments/assets/0327feed-482c-4cde-999e-88a6cad5575a
 <!-- demo:end -->
 
 [![CI](https://github.com/nccapo/stvena/actions/workflows/ci.yml/badge.svg)](https://github.com/nccapo/stvena/actions/workflows/ci.yml)
