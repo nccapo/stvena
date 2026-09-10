@@ -43,8 +43,8 @@ func (s *screenState) activateFooter(key string) {
 	switch key {
 	case "focus":
 		s.switchPane()
-	case "new-agent", "next-agent", "previous-agent", "close-agent":
-		s.agentShortcut(map[string]byte{"new-agent": 0x1d, "next-agent": 0x0e, "previous-agent": 0x10, "close-agent": 0x17}[key])
+	case "new-agent", "next-agent", "previous-agent", "close-agent", "next-attention":
+		s.agentShortcut(map[string]byte{"new-agent": 0x1d, "next-agent": 0x0e, "previous-agent": 0x10, "close-agent": 0x17, "next-attention": 0x19}[key])
 	case "quit-app":
 		s.review.Request = key
 	default:

@@ -8,6 +8,7 @@ var GlobalHotkeyActions = []Action{
 	{"Ctrl-]", "New agent", "Choose a command for another agent terminal"},
 	{"Ctrl-N", "Next agent", "Select the next agent terminal"},
 	{"Ctrl-P", "Previous agent", "Select the previous agent terminal"},
+	{"Ctrl-Y", "Next attention", "Cycle agents by error, review, waiting, changes, running, done"},
 	{"Ctrl-W", "Close agent", "Stop and close the current agent terminal"},
 	{"Ctrl-Q", "Quit all", "Close Stvena and stop all running agents"},
 }

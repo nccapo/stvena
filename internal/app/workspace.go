@@ -31,6 +31,7 @@ func watchSnapshots(root string, rootErr error, saved *session.Session, events c
 	bridgeReported := false
 	var project diffview.Snapshot
 	refresh := func() {
+		capturedAt := time.Now()
 		tree, err := saved.Capture()
 		workspace := diffview.Collect(root)
 		workspace.Label = "Workspace"
@@ -50,6 +51,9 @@ func watchSnapshots(root string, rootErr error, saved *session.Session, events c
 		if err == nil && (project.Tree != tree || project.Err != nil) {
 			project = diffview.Project(root, tree)
 		}
+		// Attention events must compare against when the tree was captured, not
+		// when the subsequent Git diff finished processing an older tree.
+		view.UpdatedAt = capturedAt
 		deliveredProject := project
 		if err != nil {
 			deliveredProject.Err = fmt.Errorf("Project capture failed: %w", err)
@@ -128,6 +132,7 @@ func (s *screenState) setCheck(r checks.Result) {
 	s.review.CheckLines = strings.Split(r.Command+"\nSnapshot: "+r.Tree+"\n"+s.review.CheckStatus+fmt.Sprintf(" (exit %d)", r.ExitCode)+" · "+r.FinishedAt.Format(time.RFC3339)+"\n\n"+r.Output, "\n")
 }
 func (s *screenState) dispatch(ctx context.Context, events chan<- any, stop <-chan struct{}) bool {
+	defer s.refreshAttention()
 	if s.review.HotkeysDirty {
 		s.relayout(s.layout.Width, s.layout.Height)
 		if err := s.savePreferences(); err != nil {

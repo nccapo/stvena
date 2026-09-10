@@ -11,8 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"encoding/json"
 	"github.com/charmbracelet/x/vt"
 	"github.com/creack/pty"
+	"github.com/nccapo/stvena/internal/attention"
 	"golang.org/x/term"
 )
 
@@ -32,6 +34,22 @@ func TestAgentTerminalsEndToEnd(t *testing.T) {
 				n, err := os.Stdin.Read(buffer)
 				if err != nil || strings.ContainsRune(string(buffer[:n]), '\x03') {
 					os.Exit(0)
+				}
+				if string(buffer[:n]) == "attention-edit" {
+					path := fmt.Sprintf("%s-%d.txt", kind, os.Getpid())
+					record := func(event string) {
+						data, _ := json.Marshal(map[string]any{"hook_event_name": event, "tool_name": "Write", "tool_use_id": "edit-1", "tool_input": map[string]string{"file_path": path}})
+						if err := attention.RecordHook(strings.NewReader(string(data))); err != nil {
+							fmt.Println(err)
+							os.Exit(2)
+						}
+					}
+					record("PreToolUse")
+					if err := os.WriteFile(path, []byte("agent-created change\n"), 0600); err != nil {
+						os.Exit(2)
+					}
+					record("PostToolUse")
+					record("Stop")
 				}
 				fmt.Printf("input:%d:%s\r\n", os.Getpid(), buffer[:n])
 			}
@@ -137,7 +155,7 @@ func exerciseAgentTerminals(t *testing.T, width int, helper string) {
 	send := func(text string) {
 		t.Helper()
 		if width == 140 {
-			text = strings.NewReplacer("\x07", "\x1b[103;9u", "\x1d", "\x1b[93;9u", "\x0e", "\x1b[110;9u", "\x10", "\x1b[112;9u", "\x17", "\x1b[119;9u", "\x11", "\x1b[113;9u").Replace(text)
+			text = strings.NewReplacer("\x07", "\x1b[103;9u", "\x1d", "\x1b[93;9u", "\x0e", "\x1b[110;9u", "\x10", "\x1b[112;9u", "\x17", "\x1b[119;9u", "\x11", "\x1b[113;9u", "\x19", "\x1b[121;9u").Replace(text)
 		}
 		if _, err := ptmx.WriteString(text); err != nil {
 			t.Fatal(err)
@@ -170,7 +188,7 @@ func exerciseAgentTerminals(t *testing.T, width int, helper string) {
 	send("\x1d")
 	waitFor("New agent")
 	send("l")
-	waitFor("claude 2/2")
+	waitFor("[claude 1 ")
 	text := screen()
 	if !strings.Contains(text, "ready:") {
 		text = waitFor("ready:")
@@ -185,22 +203,23 @@ func exerciseAgentTerminals(t *testing.T, width int, helper string) {
 	send("second")
 	waitFor("input:" + second + ":second")
 	send("\x10")
-	text = waitFor(filepath.Base(executable) + " 1/2")
+	text = waitFor("[" + filepath.Base(executable) + " 1 ")
 	if !strings.Contains(text, "input:"+first+":first") || strings.Contains(text, "input:"+second) {
 		t.Fatal("switch did not restore the first terminal's screen")
 	}
 	// Interrupting one command must leave the other usable, and q must not
 	// accidentally stop it while viewing the finished command.
 	send("\x03")
-	waitFor("Finished")
+	waitFor("✓ DONE")
+	send("\x0f")
 	send("q")
 	waitFor("An agent is still running")
 	send("\x0e")
-	waitFor("claude 2/2")
+	waitFor("[claude 1 ")
 	send("alive")
 	waitFor("input:" + second + ":alive")
 	send("\x1dc")
-	waitFor("codex 3/3")
+	waitFor("[codex 1 ")
 	text = screen()
 	if !strings.Contains(text, "ready:") {
 		text = waitFor("ready:")
@@ -209,8 +228,22 @@ func exerciseAgentTerminals(t *testing.T, width int, helper string) {
 	if !strings.Contains(text, "kind:codex") {
 		t.Fatal("chooser did not launch Codex")
 	}
+	// Codex creates changes while Claude is selected. No manual inspection of
+	// the Codex pane should be needed to discover or acknowledge its review.
+	send("attention-edit\x10")
+	waitFor("! REVIEW 1f")
+	if !strings.Contains(screen(), "[claude 1 ") {
+		t.Fatal("background edit stole focus")
+	}
+	send("\x19")
+	waitFor("agent-created change")
+	if !strings.Contains(screen(), "codex 1 ! REVIEW 1f") {
+		t.Fatal("next attention missed Codex")
+	}
+	send(" ")
+	waitFor("Review:0")
 	send("\x17")
-	waitFor("claude 2/2")
+	waitFor("[claude 1 ")
 	var closedPID int
 	_, _ = fmt.Sscan(third, &closedPID)
 	if err := syscall.Kill(closedPID, 0); err != syscall.ESRCH {
@@ -220,11 +253,11 @@ func exerciseAgentTerminals(t *testing.T, width int, helper string) {
 	waitFor("input:" + second + ":survived")
 	// Remove the finished terminal, then the last running terminal.
 	send("\x10\x17")
-	waitFor("claude 1/1")
+	waitFor("[claude 1 ")
 	send("\x17")
 	waitFor("q exits")
 	send("\x1d\r")
-	waitFor(filepath.Base(executable) + " 1/1")
+	waitFor("[" + filepath.Base(executable) + " 2 ")
 	text = screen()
 	if !strings.Contains(text, "ready:") {
 		text = waitFor("ready:")

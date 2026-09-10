@@ -32,6 +32,7 @@ type Layout struct {
 	DiffWidth, DiffHeight int
 	Vertical              bool
 	FooterY, FooterHeight int
+	AgentRows             int
 }
 
 func NewLayout(width, height int) Layout { return NewLayoutOptions(width, height, 58, false) }
@@ -41,9 +42,14 @@ func NewLayoutOptions(width, height, ratio int, fullscreen bool, state ...*revie
 	l := Layout{Width: width, Height: height, LeftY: 1}
 	l.FooterHeight = min(len(controlRows(width, false, state...)), max(0, height-2))
 	l.FooterY = height - l.FooterHeight
-	contentHeight := max(1, l.FooterY-1)
+	if len(state) > 0 && state[0] != nil && len(state[0].Agents) > 0 {
+		l.AgentRows = min(2, len(state[0].Agents), max(0, l.FooterY-3))
+	}
+	top := 1 + l.AgentRows
+	l.LeftY = top
+	contentHeight := max(1, l.FooterY-top)
 	if fullscreen {
-		l.DiffY = 1
+		l.DiffY = top
 		l.DiffWidth = width
 		l.DiffHeight = contentHeight
 		return l
@@ -52,7 +58,7 @@ func NewLayoutOptions(width, height, ratio int, fullscreen bool, state ...*revie
 		l.LeftWidth = max(40, width*min(75, max(25, ratio))/100)
 		l.LeftHeight = contentHeight
 		l.DiffX = l.LeftWidth + 1
-		l.DiffY = 1
+		l.DiffY = top
 		l.DiffWidth = max(1, width-l.DiffX)
 		l.DiffHeight = contentHeight
 		return l
@@ -80,6 +86,13 @@ func Render(w io.Writer, terminal *vt.Emulator, state *review.State, layout Layo
 		focus += " · " + safeText(state.AgentLabel)
 	}
 	header := headerBG + bold + " Stvena " + reset + headerBG + "  " + focus + "  · " + safeText(state.AgentStatus) + reset
+	if len(state.Agents) > 0 {
+		pane := "AGENT"
+		if diffFocused {
+			pane = "REVIEW"
+		}
+		header = headerBG + bold + " Stvena " + reset + " · " + pane + " · " + agentOverview(state)
+	}
 	if len(state.Attachments) > 0 {
 		header += cyan + fmt.Sprintf(" · Context: %d (B)", len(state.Attachments)) + reset
 	}
@@ -91,6 +104,12 @@ func Render(w io.Writer, terminal *vt.Emulator, state *review.State, layout Layo
 		header += reset
 	}
 	rows[0] = reviewRow(header, layout.Width)
+	for y, row := range agentRows(state, layout.Width) {
+		if y >= layout.AgentRows {
+			break
+		}
+		rows[y+1] = reviewRow(row, layout.Width)
+	}
 
 	for y := 0; y < layout.LeftHeight && layout.LeftY+y < layout.FooterY; y++ {
 		rows[layout.LeftY+y] = renderTerminalRow(terminal, y, layout.LeftWidth)
@@ -123,7 +142,11 @@ func Render(w io.Writer, terminal *vt.Emulator, state *review.State, layout Layo
 		if diffFocused {
 			target = "review"
 		}
-		rows[0] = reviewRow(headerBG+bold+" BOTTOM PANEL · Arrows: move · Enter: select · Esc: "+target, layout.Width)
+		text := " BOTTOM PANEL"
+		if len(state.Agents) > 0 {
+			text += " · " + agentOverview(state)
+		}
+		rows[0] = reviewRow(headerBG+bold+text+" · Arrows: move · Enter: select · Esc: "+target, layout.Width)
 		cursorVisible = false
 	}
 	footerStart := FooterStart(layout.Width, layout.FooterHeight, state)
@@ -257,7 +280,7 @@ type FooterControl struct{ Key, Action, Label string }
 var FooterControls = []FooterControl{
 	{"Ctrl-G", "focus", "Switch panes"}, {"Ctrl-]", "new-agent", "New agent"},
 	{"Ctrl-N", "next-agent", "Next agent"}, {"Ctrl-P", "previous-agent", "Previous agent"},
-	{"Ctrl-W", "close-agent", "Close agent"},
+	{"Ctrl-W", "close-agent", "Close agent"}, {"Ctrl-Y", "next-attention", "Next attention"},
 	{"1", "1", "Changes"}, {"2", "2", "Workspace"}, {"3", "3", "Files"},
 	{"B", "B", "Context"}, {"b", "b", "Paste to agent"}, {"T", "T", "Checks"},
 	{"K", "K", "Checkpoint"}, {"a", "a", "Actions"}, {"F", "F", "Expand"},

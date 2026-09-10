@@ -1,10 +1,12 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/nccapo/stvena/internal/attention"
 	"github.com/nccapo/stvena/internal/checks"
 	"github.com/nccapo/stvena/internal/session"
 	"io"
@@ -64,7 +66,9 @@ type contentEvent struct {
 func Run(args []string) error {
 	if len(args) == 1 && args[0] == "editor-hook" {
 		// Observers must never block an agent operation on a display failure.
-		_ = editor.RecordHook(os.Stdin)
+		data, _ := io.ReadAll(io.LimitReader(os.Stdin, 1024*1024))
+		_ = attention.RecordHook(bytes.NewReader(data))
+		_ = editor.RecordHook(bytes.NewReader(data))
 		return nil
 	}
 	if len(args) == 1 && args[0] == "--version" {
@@ -72,7 +76,7 @@ func Run(args []string) error {
 		return nil
 	}
 	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
-		fmt.Fprintln(os.Stdout, "Usage: stvena [--] [command [args...]]\n       stvena review [--session ID]\n       stvena sessions\n\nDefault command: codex. The bottom panel starts focused on Configuration.\nArrows select, Enter activates, Esc returns to the agent or review. F6 can refocus the panel.\nSelect Configuration to change global or review shortcuts for all projects.\nCtrl-G switches panes (agent/workspace), preserving the open file; a opens Actions.\nCtrl-] chooses Codex, Claude Code, or the launch command for a new terminal. Ctrl-N / Ctrl-P switch agent terminals.\nCtrl-W closes the current agent terminal and stops its command.\nCtrl-Q closes stvena and stops all running commands. Ctrl-C interrupts the command.\nReview stays open after commands exit. q closes review once all agents finish.\nRun inside the repository you want to review.")
+		fmt.Fprintln(os.Stdout, "Usage: stvena [--] [command [args...]]\n       stvena review [--session ID]\n       stvena sessions\n\nDefault command: codex. The bottom panel starts focused on Configuration.\nArrows select, Enter activates, Esc returns to the agent or review. F6 can refocus the panel.\nSelect Configuration to change global or review shortcuts for all projects.\nCtrl-G switches panes (agent/workspace), preserving the open file; a opens Actions.\nCtrl-] chooses Codex, Claude Code, or the launch command for a new terminal. Ctrl-N / Ctrl-P switch agent terminals.\nCtrl-Y selects the next agent needing attention.\nCtrl-W closes the current agent terminal and stops its command.\nCtrl-Q closes stvena and stops all running commands. Ctrl-C interrupts the command.\nReview stays open after commands exit. q closes review once all agents finish.\nRun inside the repository you want to review.")
 		return nil
 	}
 	if len(args) == 1 && args[0] == "sessions" {
@@ -153,15 +157,28 @@ func Run(args []string) error {
 	if !standalone {
 		state.launchCommand = append([]string(nil), args...)
 		state.startAgent = func(args []string, layout ui.Layout) (*agentTerminal, error) {
-			var env []string
-			if savedSession != nil {
-				if executable, err := os.Executable(); err == nil {
-					env = []string{"STVENA_ACTIVITY_PATH=" + editor.ActivityPath(savedSession), "STVENA_ROOT=" + root,
-						"STVENA_SESSION=" + savedSession.ID, "STVENA_AGENT=" + filepath.Base(args[0])}
-					args = editor.HookArgs(args, executable)
-				}
+			dir, err := os.MkdirTemp("", "stvena-attention-")
+			if err != nil {
+				return nil, err
 			}
-			return startAgentTerminal(args, cwd, layout, events, stop, env...)
+			env := []string{"STVENA_ROOT=" + root, "STVENA_ATTENTION_DIR=" + dir}
+			if savedSession != nil {
+				env = append(env, "STVENA_ACTIVITY_PATH="+editor.ActivityPath(savedSession), "STVENA_SESSION="+savedSession.ID, "STVENA_AGENT="+filepath.Base(args[0]))
+			}
+			if executable, err := os.Executable(); err == nil {
+				args = editor.HookArgs(args, executable)
+			}
+
+			a, err := startAgentTerminal(args, cwd, layout, events, stop, env...)
+			if err != nil {
+				_ = os.RemoveAll(dir)
+				return nil, err
+			}
+			done := make(chan struct{})
+			go func() { defer close(done); watchAttention(a, dir, events, stop) }()
+			closeTerminal := a.close
+			a.close = sync.OnceFunc(func() { closeTerminal(); close(a.attentionStop); <-done; _ = os.RemoveAll(dir) })
+			return a, nil
 		}
 		a, err := state.startAgent(args, layout)
 		if err != nil {
@@ -289,8 +306,12 @@ func Run(args []string) error {
 				if value.agent.closed {
 					continue
 				}
+				value.agent.attention.Output(time.Now())
 				_, _ = value.agent.virtual.Write(value.data)
 				state.syncAgent()
+				dirty = true
+			case attentionEvent:
+				state.applyAttention(value)
 				dirty = true
 			case diffEvent:
 				state.workspace = value.snapshot
@@ -302,6 +323,7 @@ func Run(args []string) error {
 					state.review.LiveTree = value.snapshot.Tree
 				}
 				state.updateSource()
+				state.refreshAttention()
 				state.clampScroll()
 				state.queueContent(contentRequests)
 				dirty = true
@@ -375,6 +397,11 @@ func Run(args []string) error {
 
 			}
 		case <-renderTicker.C:
+			for _, a := range state.agents {
+				if a.attention.Quiet(time.Now()) {
+					dirty = true
+				}
+			}
 			if ui.WelcomeVisible(&state.review) && time.Since(lastWelcomeFrame) >= 250*time.Millisecond {
 				state.review.WelcomeFrame = (state.review.WelcomeFrame + 1) % 6
 				lastWelcomeFrame = time.Now()
@@ -390,6 +417,8 @@ func Run(args []string) error {
 				dirty = true
 			}
 			if dirty {
+				state.syncAttention()
+				state.resizeAgents()
 				if wantMouse := state.diffFocused || state.review.FooterFocused || state.agentPicker != nil; mouseEnabled != wantMouse {
 					mouseEnabled = wantMouse
 					if mouseEnabled {
@@ -420,6 +449,8 @@ func Run(args []string) error {
 type screenState struct {
 	agents                              []*agentTerminal
 	activeAgentIndex                    int
+	attentionPrevious                   *agentTerminal
+	agentSerial                         map[string]int
 	startAgent                          func([]string, ui.Layout) (*agentTerminal, error)
 	launchCommand                       []string
 	agentPicker                         *ui.AgentPicker
@@ -534,7 +565,7 @@ func (s *screenState) handleLegacyInput(data []byte, child io.Writer) {
 			child = s.agentInput
 			continue
 		}
-		if action == "Ctrl-]" || action == "Ctrl-N" || action == "Ctrl-P" || action == "Ctrl-W" {
+		if action == "Ctrl-]" || action == "Ctrl-N" || action == "Ctrl-P" || action == "Ctrl-W" || action == "Ctrl-Y" {
 			// Flush preceding text to its original terminal before switching.
 			if len(forward) > 0 {
 				_, _ = child.Write(forward)

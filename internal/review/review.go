@@ -7,13 +7,21 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/nccapo/stvena/internal/attention"
 	"github.com/nccapo/stvena/internal/checks"
 	"github.com/nccapo/stvena/internal/diffview"
 )
 
 var Scopes = []diffview.Scope{"", diffview.Staged, diffview.Unstaged, diffview.Untracked}
 
+type AgentSummary struct {
+	Label        string
+	State        attention.State
+	Active, Next bool
+}
+
 type State struct {
+	Agents                            []AgentSummary
 	Snapshot                          diffview.Snapshot
 	Indices                           []int
 	Selected, Scroll, Horizontal      int
