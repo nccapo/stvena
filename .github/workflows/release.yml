@@ -52,3 +52,17 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Stable releases only; the tap tracks the latest non-prerelease.
+      - name: Update the Homebrew tap
+        if: ${{ !contains(github.ref_name, '-') }}
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "HOMEBREW_TAP_TOKEN is unset; nccapo/homebrew-stvena will pick $TAG up on its own schedule."
+            exit 0
+          fi
+          printf '{"event_type":"stvena-release","client_payload":{"version":"%s"}}' "$TAG" |
+            gh api repos/nccapo/homebrew-stvena/dispatches --input -
