@@ -57,13 +57,27 @@ git tag -a v0.1.0 -m "Stvena v0.1.0"
 git push origin v0.1.0
 ```
 
-The release workflow runs the tests, creates the GitHub release, and uploads the
-archives and checksum file consumed by `install.sh`. Test the installer against
+The release workflow runs Go and extension tests, packages Stvena Live, creates
+the GitHub release, and uploads the four binary archives, VSIX, and checksum file
+consumed by `install.sh`. Node.js 22 and `npm ci` are used for extension packaging.
+Tags with a prerelease suffix (for example `v0.2.0-preview.1`) create GitHub
+prereleases and mark the VSIX as a prerelease. Binary and extension versions are
+independent; bump `extensions/vscode/package.json` and its lockfile together when
+the extension changes. The VSIX README links point at the release tag.
+
+Test the installer against
 the new version before updating release announcements:
 
 ```sh
 STVENA_VERSION=v0.1.0 STVENA_INSTALL_DIR="$(mktemp -d)" ./install.sh
 ```
+
+For previews, provide installation instructions with the explicit tag: GitHub's
+`latest` download URL continues to select a stable release. The first editor
+preview's release notes are in [docs/preview-release.md](docs/preview-release.md).
+Verify the downloaded VSIX in isolated VS Code and Antigravity profiles before
+announcing a preview. Do not commit generated VSIX files; release packaging uses
+a fresh checkout so old local packages cannot enter the release.
 
 ## Demo in the README
 

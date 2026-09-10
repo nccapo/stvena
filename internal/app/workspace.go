@@ -14,6 +14,7 @@ import (
 	"github.com/creack/pty"
 	"github.com/nccapo/stvena/internal/checks"
 	"github.com/nccapo/stvena/internal/diffview"
+	"github.com/nccapo/stvena/internal/editor"
 	"github.com/nccapo/stvena/internal/session"
 	"github.com/nccapo/stvena/internal/ui"
 )
@@ -23,6 +24,11 @@ func watchSnapshots(root string, rootErr error, saved *session.Session, events c
 		watchDiff(root, rootErr, events, stop)
 		return
 	}
+	publisher, bridgeErr := editor.Open(saved)
+	if bridgeErr == nil {
+		defer publisher.Close()
+	}
+	bridgeReported := false
 	var project diffview.Snapshot
 	refresh := func() {
 		tree, err := saved.Capture()
@@ -48,6 +54,17 @@ func watchSnapshots(root string, rootErr error, saved *session.Session, events c
 		if err != nil {
 			deliveredProject.Err = fmt.Errorf("Project capture failed: %w", err)
 		}
+		if publisher != nil {
+			bridgeErr = publisher.Publish(tree, err)
+		}
+		if bridgeErr != nil && !bridgeReported {
+			select {
+			case events <- operationEvent{message: "Editor live view unavailable", err: bridgeErr}:
+			case <-stop:
+				return
+			}
+		}
+		bridgeReported = bridgeErr != nil
 		select {
 		case events <- diffEvent{snapshot: workspace, session: view, project: deliveredProject}:
 		case <-stop:

@@ -30,6 +30,8 @@ secrets.json
 *.prof
 coverage.*
 *.log
+node_modules/
+*.vsix
 
 # Local recordings: publish a reviewed demo as a GitHub attachment
 *.mp4

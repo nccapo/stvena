@@ -1,12 +1,16 @@
 package app
 
 import (
+	"encoding/json"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/nccapo/stvena/internal/diffview"
+	"github.com/nccapo/stvena/internal/editor"
 	"github.com/nccapo/stvena/internal/session"
 )
 
@@ -70,6 +74,26 @@ func TestChangesRefreshFromExternalProcess(t *testing.T) {
 		})
 		if e.project.Tree != e.session.Tree || e.snapshot.Tree != e.session.Tree {
 			t.Fatal("views did not refresh to the same captured files")
+		}
+		data, err := os.ReadFile(filepath.Join(root, ".git", "stvena-live.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var live editor.State
+		if err := json.Unmarshal(data, &live); err != nil {
+			t.Fatal(err)
+		}
+		if !live.Active || live.Session != saved.ID || live.Sequence == 0 || live.Error != "" {
+			t.Fatalf("watcher did not publish editor state: %+v", live)
+		}
+		found := false
+		for _, change := range live.Files {
+			if change.Path == "a.go" && change.Line == 2 {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("editor bridge missed edited line: %+v", live.Files)
 		}
 	}
 }
