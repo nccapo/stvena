@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- Add the Stvena icon to the extension listing.
+
 ## 0.2.0
 
 First GitHub preview, paired with Stvena v0.2.0-preview.1.

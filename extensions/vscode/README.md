@@ -40,7 +40,7 @@ saved-edit following works independently of them.
    `go build -o bin/stvena ./cmd/stvena`.
 2. In `extensions/vscode`, run `npm ci` and `npm run package`.
 3. In VS Code, run **Extensions: Install from VSIX…** and select the generated
-   `stvena-live-0.2.0.vsix`.
+   `stvena-live-0.2.1.vsix`.
 4. Open a Git project and run the newly built Stvena binary in its terminal.
    Released binaries predating this integration do not publish editor updates.
 5. Ask your agent to edit a file. **Stvena Live** in Explorer lists the latest

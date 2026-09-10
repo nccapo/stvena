@@ -2,7 +2,8 @@
   "name": "stvena-live",
   "displayName": "Stvena Live",
   "description": "Follow agent reads and edits with live source navigation and line highlights.",
-  "version": "0.2.0",
+  "version": "0.2.1",
+  "icon": "media/icon.png",
   "publisher": "nccapo",
   "license": "MIT",
   "repository": {
