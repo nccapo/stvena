@@ -1,9 +1,9 @@
 'use strict';
 
-const lifetime = 15000;
+const activityLifetimeMs = 15000;
 function fresh(time, now = Date.now()) {
   const age = now - Date.parse(time);
-  return age >= 0 && age < lifetime;
+  return age >= 0 && age < activityLifetimeMs;
 }
 function readRow(repo) {
   const activity = repo.state?.activity;

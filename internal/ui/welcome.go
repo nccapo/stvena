@@ -49,15 +49,8 @@ func renderWelcome(s *review.State, width, height int, focused bool) []string {
 			cyan + "Drag+b" + reset + "  Add code to agent draft",
 		}
 		if height >= 21 {
-			logo := []string{
-				cyan + "╭─────────┬─────────╮",
-				cyan + "│" + reset + "         " + cyan + "│ " + green + "+ ━━━━━ " + cyan + "│",
-				cyan + "│" + reset + bold + "  › _    " + reset + cyan + "│ " + muted + "  ━━━━━ " + cyan + "│",
-				cyan + "│" + reset + "         " + cyan + "│ " + red + "− ━━━━━ " + cyan + "│",
-				cyan + "╰─────────┴─────────╯",
-				"",
-			}
-			body = append(logo, body...)
+			logoHeight := min(16, height-len(body)-3, (width-2)/2)
+			body = append(append(renderLogo(logoHeight*2), ""), body...)
 		}
 	}
 	start := max(1, (height-1-len(body))/2)

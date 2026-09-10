@@ -55,7 +55,7 @@ func TestWelcomeYieldsToChangesAndReviewControls(t *testing.T) {
 }
 
 func TestWelcomeFitsAndAnimationKeepsTextStationary(t *testing.T) {
-	for _, size := range [][2]int{{1, 1}, {20, 5}, {40, 10}, {58, 30}, {100, 40}} {
+	for _, size := range [][2]int{{1, 1}, {20, 5}, {40, 10}, {34, 21}, {34, 22}, {34, 27}, {58, 30}, {100, 40}} {
 		s := review.State{AgentStatus: "Running", Snapshot: diffview.Snapshot{UpdatedAt: time.Now()}}
 		var previous string
 		for frame := 0; frame < 6; frame++ {
