@@ -150,12 +150,27 @@ func renderOverlay(s *review.State, width, height int) []string {
 				content = append(content, safeText(line))
 			}
 		}
+	case s.Panel == "Timeline":
+		title = fmt.Sprintf("Session timeline · %d observed batches", len(s.Timeline))
+		footer = " ↑/↓: select · Enter: open batch · Esc: back"
+		start, count := PanelListWindow(s.TimelineIndex, len(s.Timeline), height)
+		for i := start; i < start+count; i++ {
+			batch := s.Timeline[i]
+			style, marker := "", "  "
+			if i == s.TimelineIndex {
+				style, marker = focusedBG+bold, "› "
+			}
+			content = append(content, style+marker+fmt.Sprintf("%s  Batch %d  %d files  +%d -%d", batch.ObservedAt.Local().Format("15:04:05"), batch.ID, batch.FileCount, batch.Added, batch.Deleted)+reset)
+		}
+		if len(s.Timeline) == 0 {
+			content = []string{"No change batches observed yet.", "Batches appear after a stable captured tree changes."}
+		}
 	}
 	var rows []string
 	add := func(t string) { rows = append(rows, reviewRow(t, width)) }
 	add(headerBG + bold + " " + title)
 	start := 0
-	if s.Panel != "" && s.Panel != "Context" && s.Panel != "Problems" {
+	if s.Panel != "" && s.Panel != "Context" && s.Panel != "Problems" && s.Panel != "Timeline" {
 		start = min(s.PanelScroll, max(0, len(content)-max(1, height-2)))
 		s.PanelScroll = start
 	}

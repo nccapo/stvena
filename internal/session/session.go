@@ -21,10 +21,22 @@ import (
 type Session struct {
 	ID, Root, Baseline, LastTree string
 	CreatedAt                    time.Time
-	Dir                          string `json:"-"`
+	Batches                      []Batch `json:",omitempty"`
+	Dir                          string  `json:"-"`
 	index                        string
 	mu                           sync.Mutex
 }
+
+// Batch is one stable working-tree transition observed by Stvena. It does not
+// claim that a particular agent or conversation turn authored the change.
+type Batch struct {
+	ID                        uint64
+	Before, After             string
+	ObservedAt                time.Time
+	FileCount, Added, Deleted int
+}
+
+const maxBatches = 100
 
 func RepoDir(root string) (string, error) {
 	cache, err := os.UserCacheDir()
@@ -155,6 +167,49 @@ func (s *Session) Capture() (string, error) {
 }
 func (s *Session) Save() error {
 	return AtomicJSON(filepath.Join(s.Dir, s.ID+".json"), s, filepath.Join(s.Dir, "latest.json"))
+}
+
+// RecordBatch retains a bounded, replayable history of successfully compared
+// captured trees. The newest tree remains protected by the session latest ref;
+// individual refs keep intermediate snapshots available for timeline review.
+func (s *Session) RecordBatch(before, after string, observedAt time.Time, files, added, deleted int) error {
+	if before == "" || after == "" || before == after {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.Batches) > 0 && s.Batches[len(s.Batches)-1].After == after {
+		return nil
+	}
+	id := uint64(1)
+	if len(s.Batches) > 0 {
+		id = s.Batches[len(s.Batches)-1].ID + 1
+	}
+	ref := s.ref(fmt.Sprintf("batches/%06d", id))
+	if _, err := git(s.Root, nil, "update-ref", ref, after); err != nil {
+		return err
+	}
+	previous := append([]Batch(nil), s.Batches...)
+	s.Batches = append(s.Batches, Batch{ID: id, Before: before, After: after, ObservedAt: observedAt.UTC(), FileCount: files, Added: added, Deleted: deleted})
+	var dropped []Batch
+	if len(s.Batches) > maxBatches {
+		dropped = append(dropped, s.Batches[:len(s.Batches)-maxBatches]...)
+		s.Batches = append([]Batch(nil), s.Batches[len(s.Batches)-maxBatches:]...)
+		if _, err := git(s.Root, nil, "update-ref", s.ref("batch-base"), s.Batches[0].Before); err != nil {
+			s.Batches = previous
+			_, _ = git(s.Root, nil, "update-ref", "-d", ref)
+			return err
+		}
+	}
+	if err := s.Save(); err != nil {
+		s.Batches = previous
+		_, _ = git(s.Root, nil, "update-ref", "-d", ref)
+		return err
+	}
+	for _, batch := range dropped {
+		_, _ = git(s.Root, nil, "update-ref", "-d", s.ref(fmt.Sprintf("batches/%06d", batch.ID)))
+	}
+	return nil
 }
 func (s *Session) Close() { _ = os.Remove(s.index); _ = os.Remove(s.index + ".lock") }
 

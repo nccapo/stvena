@@ -29,7 +29,12 @@ func watchSnapshots(root string, rootErr error, saved *session.Session, events c
 		defer publisher.Close()
 	}
 	bridgeReported := false
-	var project diffview.Snapshot
+	requests, requestErr := editor.OpenRequests(saved)
+	requestReported := false
+	timelineReported := false
+	var project, branch diffview.Snapshot
+	branchKey := ""
+	observedTree := saved.LastTree
 	refresh := func() {
 		capturedAt := time.Now()
 		tree, err := saved.Capture()
@@ -51,6 +56,28 @@ func watchSnapshots(root string, rootErr error, saved *session.Session, events c
 		if err == nil && (project.Tree != tree || project.Err != nil) {
 			project = diffview.Project(root, tree)
 		}
+		head := diffview.BranchHead(root)
+		if err == nil && (branchKey != tree+"\x00"+head || branch.Err != nil) {
+			branch = diffview.BranchChanges(root, tree)
+			branchKey = tree + "\x00" + head
+		}
+		if err == nil && observedTree != "" && observedTree != tree {
+			delta := diffview.CompareTrees(root, observedTree, tree)
+			if delta.Err == nil {
+				batchErr := saved.RecordBatch(observedTree, tree, capturedAt, delta.FileCount, delta.Added, delta.Deleted)
+				if batchErr == nil {
+					observedTree = tree
+				}
+				if batchErr != nil && !timelineReported {
+					select {
+					case events <- operationEvent{message: "Session timeline unavailable", err: batchErr}:
+					case <-stop:
+						return
+					}
+				}
+				timelineReported = batchErr != nil
+			}
+		}
 		// Attention events must compare against when the tree was captured, not
 		// when the subsequent Git diff finished processing an older tree.
 		view.UpdatedAt = capturedAt
@@ -70,8 +97,34 @@ func watchSnapshots(root string, rootErr error, saved *session.Session, events c
 		}
 		bridgeReported = bridgeErr != nil
 		select {
-		case events <- diffEvent{snapshot: workspace, session: view, project: deliveredProject}:
+		case events <- diffEvent{snapshot: workspace, session: view, project: deliveredProject, branch: branch, batches: append([]session.Batch(nil), saved.Batches...)}:
 		case <-stop:
+			return
+		}
+		if requests != nil {
+			request, err := requests.Poll()
+			if err != nil && !requestReported {
+				select {
+				case events <- operationEvent{message: "Editor request unavailable", err: err}:
+				case <-stop:
+					return
+				}
+			}
+			requestReported = err != nil
+			if request != nil {
+				select {
+				case events <- editorRequestEvent{request: *request}:
+				case <-stop:
+					return
+				}
+			}
+		} else if requestErr != nil && !requestReported {
+			select {
+			case events <- operationEvent{message: "Editor requests unavailable", err: requestErr}:
+			case <-stop:
+				return
+			}
+			requestReported = true
 		}
 	}
 	refresh()
@@ -94,6 +147,8 @@ func (s *screenState) updateSource() {
 			project.Err = fmt.Errorf("Waiting for project capture; if Git was initialized after launch, restart stvena")
 		}
 		s.review.Update(project)
+	} else if s.review.Source == "branch" {
+		s.review.Update(s.branchView)
 	} else if s.review.Source == "session" && s.session != nil {
 		s.review.Update(s.sessionView)
 	} else {
@@ -192,7 +247,7 @@ func (s *screenState) dispatch(ctx context.Context, events chan<- any, stop <-ch
 			s.ratio = min(75, s.ratio+5)
 		}
 		s.relayout(s.layout.Width, s.layout.Height)
-	case "1", "2", "3":
+	case "1", "2", "3", "4":
 		if s.review.Checkpoint != nil {
 			s.review.Notice = "Checkpoint stays pinned · Z: finish · P: resume live before switching sources"
 			break
@@ -201,17 +256,56 @@ func (s *screenState) dispatch(ctx context.Context, events chan<- any, stop <-ch
 			s.review.Notice = "No session baseline available"
 			break
 		}
+		if r == "4" && s.session == nil {
+			s.review.Notice = "Branch changes need a captured Git workspace"
+			break
+		}
 		s.review.Pinned = false
 		s.review.Scope = 0
 		s.review.ClearSelection()
 		s.review.TargetLine = 0
 		s.review.Query = ""
 		s.review.Panel = ""
-		s.review.Source = map[string]string{"1": "session", "2": "workspace", "3": "project"}[r]
+		s.review.Source = map[string]string{"1": "session", "2": "workspace", "3": "project", "4": "branch"}[r]
+		if r == "3" {
+			s.review.Inbox = false
+		}
 		s.review.FullFile = r == "3"
 		s.review.Browser, s.review.PatchFocused = true, false
 		s.updateSource()
 		s.review.Notice = ""
+	case "timeline-open":
+		if s.review.Checkpoint != nil {
+			s.review.Notice = "Checkpoint stays pinned · P: resume live before opening the timeline"
+			break
+		}
+		if len(s.review.Timeline) == 0 {
+			s.review.Notice = "No observed change batches yet"
+			break
+		}
+		index := min(max(0, s.review.TimelineIndex), len(s.review.Timeline)-1)
+		entry := s.review.Timeline[index]
+		batch := diffview.CompareTrees(s.root, entry.Before, entry.After)
+		if batch.Err != nil {
+			s.review.Notice = batch.Err.Error()
+			break
+		}
+		batch.Label = fmt.Sprintf("Observed batch %d · %s", entry.ID, entry.ObservedAt.Local().Format("15:04:05"))
+		batch.Branch = s.sessionView.Branch
+		latest := s.sessionView
+		s.review.Pinned = false
+		s.review.ClearSelection()
+		s.review.Scope, s.review.Selected, s.review.Scroll = 0, 0, 0
+		s.review.Query, s.review.Panel = "", ""
+		s.review.Source = "session"
+		s.review.Inbox = false
+		s.review.Update(batch)
+		s.review.Latest = latest
+		s.review.Pinned = true
+		s.review.PinnedVersion = batch.Version
+		s.review.Browser, s.review.PatchFocused, s.review.FullFile = true, false, false
+		s.review.SetTimeline(s.review.Timeline)
+		s.review.Notice = "Observed batch pinned · P: return to live session"
 	case "copy", "path", "feedback", "copy-context":
 		value := ""
 		if r == "copy-context" {
@@ -336,7 +430,7 @@ func (s *screenState) dispatch(ctx context.Context, events chan<- any, stop <-ch
 			s.review.Notice = "Open Workspace (2) to stage changes"
 			break
 		}
-		if s.review.Source == "session" || f.Scope == diffview.Session {
+		if s.review.Source != "workspace" && s.review.Source != "" {
 			s.review.Notice = "Press 2 for Workspace, then stage the file or hunk"
 			break
 		}

@@ -25,6 +25,13 @@ async function run() {
     await fs.writeFile(repo.statePath + '.tmp', JSON.stringify(value));
     await fs.rename(repo.statePath + '.tmp', repo.statePath);
   }
+  async function writeReview(focus) {
+    const review = { version: 1, session: value.session, sequence: ++sequence, active: true,
+      updatedAt: new Date().toISOString(), changedAt: new Date().toISOString(), focus,
+      unreviewedFiles: 1, unreviewedHunks: 1, newerBatches: 0 };
+    await fs.writeFile(repo.reviewPath + '.tmp', JSON.stringify(review));
+    await fs.rename(repo.reviewPath + '.tmp', repo.reviewPath);
+  }
   async function publish(before, after, file = 'example.txt') {
     const target = path.join(root, file);
     if (/^0+$/.test(after)) await fs.rm(target, { force: true });
@@ -38,7 +45,7 @@ async function run() {
   async function waitFor(predicate, message) {
     const deadline = Date.now() + 12000;
     while (Date.now() < deadline) {
-      if (predicate()) return;
+      if (await predicate()) return;
       await new Promise(resolve => setTimeout(resolve, 100));
     }
     throw new Error(message);
@@ -106,9 +113,31 @@ async function run() {
     await new Promise(resolve => setTimeout(resolve, 1800));
     assert.equal(visible('reading.txt').selection.active.line, 4, 'Read expiry navigated to an old edit');
     noDiffs();
-    console.log('STVENA_HOST_TESTS_PASSED: edits, reads, ranges, pause/resume, expiry, unsaved buffer, no diffs');
+    // TUI review follows the ordinary source file and editor selections travel
+    // back through the local request descriptor, never through a native diff.
+    await writeReview({ tree: '1'.repeat(40), source: 'session', path: 'reading.txt', line: 3, endLine: 4 });
+    await waitFor(() => visible('reading.txt')?.selection.active.line === 2, 'TUI review focus did not follow source');
+    const reviewEditor = visible('reading.txt');
+    reviewEditor.selection = new vscode.Selection(2, 0, 3, 1);
+    await vscode.commands.executeCommand('stvena.addSelectionToContext');
+    await waitFor(() => fs.access(repo.requestPath).then(() => true, () => false), 'Context request was not written');
+    let request = JSON.parse(await fs.readFile(repo.requestPath, 'utf8'));
+    assert.equal(request.action, 'context');
+    assert.equal(request.path, 'reading.txt');
+    assert.equal(request.line, 3);
+    assert.equal(request.endLine, 4);
+    const contextID = request.id;
+    await vscode.commands.executeCommand('stvena.reviewInStvena');
+    await waitFor(async () => JSON.parse(await fs.readFile(repo.requestPath, 'utf8')).id !== contextID,
+      'Review request did not replace the context request');
+    request = JSON.parse(await fs.readFile(repo.requestPath, 'utf8'));
+    assert.equal(request.action, 'review');
+    noDiffs();
+    console.log('STVENA_HOST_TESTS_PASSED: edits, reads, TUI review, editor requests, ranges, pause/resume, expiry, unsaved buffer, no diffs');
   } finally {
     await fs.rm(repo.statePath, { force: true });
+    await fs.rm(repo.reviewPath, { force: true });
+    await fs.rm(repo.requestPath, { force: true });
   }
 }
 

@@ -28,7 +28,8 @@ If Stvena saves you from the "open the IDE just for the diff" loop, consider
 ## Why Stvena?
 
 - **See the work as it happens.** Review changes since the agent started, or
-  inspect staged, unstaged, and new files across the workspace.
+  inspect branch, staged, unstaged, and new changes. A retained session timeline
+  lets you reopen the stable edit batches Stvena actually observed.
 - **Read beyond the diff.** Browse the project tree, open complete files, and
   switch between unified and side-by-side views with syntax highlighting.
 - **Give the agent precise context.** Select code with the mouse or keyboard,
@@ -38,8 +39,9 @@ If Stvena saves you from the "open the IDE just for the diff" loop, consider
   terminals running, switch between them, and review their combined changes in
   one workspace.
 - **Follow saved edits in your editor.** The experimental Stvena Live extension
-  lists each newly captured batch and opens the working source at its first
-  changed line while focus stays in the integrated terminal.
+  lists captured activity and mirrors Stvena's current review range in the real
+  source file—never a native IDE diff. Editor selections can open TUI review or
+  enter Stvena's context tray.
 - **Keep track of your review.** Pin a captured version, mark files and hunks
   reviewed, and see when a reviewed change has changed again.
 - **Check the code you are looking at.** Run a command in a temporary checkout
@@ -181,7 +183,7 @@ but direct selection paste is supported for Codex and Claude Code.
 | **Ctrl-Y** | Next attention: error, review, waiting, changed, running, done |
 | **Ctrl-W** | Close current agent terminal and stop its command |
 | **Ctrl-Q** | Quit Stvena and stop all agents |
-| **1 / 2 / 3** | Session changes / workspace changes / project files |
+| **1 / 2 / 3 / 4** | Session / workspace / project files / branch changes |
 | **Enter / f** | Open file / return to file browser |
 | **v** | Toggle diff and full-file view |
 | **Drag / V** | Select code with mouse / keyboard |
@@ -189,6 +191,7 @@ but direct selection paste is supported for Codex and Claude Code.
 | **P** | Pin the displayed version or resume live updates |
 | **K / Z** | Start Review checkpoint / finish and preview its draft |
 | **Space / N** | Mark file reviewed / next unreviewed file |
+| **I / L** | Toggle review inbox / open observed session timeline |
 | **t / T** | Run a check / inspect results |
 | **a / ?** | Actions menu / keyboard help |
 
@@ -296,12 +299,18 @@ not restored after restarting Stvena; saved review records continue to work.
 ## Follow reads and edits in VS Code
 
 The experimental [Stvena Live extension](https://marketplace.visualstudio.com/items?itemName=nccapo.stvena-live) follows
-captured edits in the editor while Stvena runs in its integrated terminal. It
-opens working source files at the changed line, lists the latest changed files,
-and lets you pause and resume following. Supported Codex and Claude tool hooks
+captured edits and the active Stvena review range while Stvena runs in its
+integrated terminal. It always opens ordinary working source files—Stvena's TUI
+remains the diff surface. Use **Stvena: Review This Line in Stvena** to move the
+TUI to the editor cursor, or **Stvena: Add Selection to Context** to collect the
+captured selection in Stvena's tray. Supported Codex and Claude tool hooks
 also report read locations. Blue read markers and amber edit markers show the
 relevant lines with an inline label; markers expire after 15 seconds. Codex
 requires its normal `/hooks` trust review before read reporting runs.
+
+The purple review marker and editor-to-TUI commands currently require source
+builds of both Stvena and the extension from this repository. The published
+0.2.x preview continues to provide read/edit following only.
 
 Install **Stvena Live** by **nccapo** from the VS Code Extensions view, or run:
 
@@ -337,8 +346,8 @@ Click **Stvena: Following** in the status bar to pause or resume navigation;
 If the view stays **Waiting**, check the binary version and workspace trust,
 and open **Stvena Live** in the Output panel for connection errors.
 
-The extension targets VS Code 1.85 or newer. It reads saved
-file captures from the repository's Git directory; it does not run commands,
+The extension targets VS Code 1.85 or newer. It exchanges small, validated local
+descriptors through the repository's Git directory; it does not run commands,
 write source, add telemetry, or expose a network service.
 
 Updates are snapshots sampled roughly every 700 ms plus capture and extension

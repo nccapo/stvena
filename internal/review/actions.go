@@ -20,6 +20,9 @@ var Actions = []Action{
 	{"1", "This session", "Changes observed since the agent started"},
 	{"2", "Whole workspace", "All staged, unstaged and new files"},
 	{"3", "Project files", "Browse and search every captured project file"},
+	{"4", "Branch changes", "Committed and working changes since the default-branch merge base"},
+	{"I", "Review inbox", "Show only files that still need review in the current source"},
+	{"L", "Session timeline", "Inspect stable change batches observed during this Stvena session"},
 	{"/", "Find text / file", "Search code, or filter paths in the file browser"},
 	{":", "Go to line", "Jump directly to a source line"},
 	{"s", "Side-by-side diff", "Compare old and new code"},
@@ -185,6 +188,21 @@ func (s *State) AdvancedKey(key string, visible int) bool {
 		}
 		return true
 	}
+	if s.Panel == "Timeline" {
+		switch key {
+		case "esc", "L":
+			s.Panel = ""
+		case "j", "down":
+			s.TimelineIndex = min(max(0, len(s.Timeline)-1), s.TimelineIndex+1)
+		case "k", "up":
+			s.TimelineIndex = max(0, s.TimelineIndex-1)
+		case "enter":
+			if len(s.Timeline) > 0 {
+				s.Request = "timeline-open"
+			}
+		}
+		return true
+	}
 	if s.Panel != "" {
 		switch key {
 		case "o":
@@ -244,6 +262,24 @@ func (s *State) AdvancedKey(key string, visible int) bool {
 	case "B":
 		s.Panel = "Context"
 		s.PanelScroll = 0
+	case "I":
+		if s.Source == "project" {
+			s.Notice = "Review inbox is available for change views"
+			return true
+		}
+		s.Inbox = !s.Inbox
+		s.Selected, s.Scroll, s.Horizontal = 0, 0, 0
+		s.ClearSelection()
+		s.filter("")
+		if s.Inbox {
+			files, hunks, changed := s.ReviewInboxCounts()
+			s.Notice = fmt.Sprintf("Review inbox · %d files · %d hunks · %d changed again", files, hunks, changed)
+		} else {
+			s.Notice = "Showing all changes"
+		}
+	case "L":
+		s.Panel = "Timeline"
+		s.TimelineIndex = max(0, len(s.Timeline)-1)
 	case "a":
 		s.Menu = true
 	case ":":
@@ -316,7 +352,7 @@ func (s *State) AdvancedKey(key string, visible int) bool {
 		s.Request = "fullscreen"
 	case "+", "-":
 		s.Request = key
-	case "1", "2", "3":
+	case "1", "2", "3", "4":
 		s.Request = key
 	case "S":
 		s.Request = "stage-file"
@@ -376,6 +412,9 @@ func (s *State) AdvancedKey(key string, visible int) bool {
 		delete(s.reviewed, f.Key())
 		s.Hunks[id] = !wasReviewed
 		s.Remember(*f)
+		if s.Inbox && s.Reviewed(*f) {
+			s.filter("")
+		}
 		s.Notice = "Hunk review updated"
 		s.Request = "save"
 	default:

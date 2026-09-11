@@ -150,7 +150,7 @@ func TestFullFileAndBrowserRender(t *testing.T) {
 func TestAdvancedViewsAndControlsFit(t *testing.T) {
 	f := diffview.File{Path: "file.go", Scope: diffview.Session, Lines: []string{"@@ -1 +1 @@", "-func oldName() { return 100 }", "+func newName() { return 200 }"}}
 	for _, width := range []int{20, 60, 120} {
-		for _, mode := range []string{"split", "wrap", "menu", "comments", "prompt", "confirm", "context", "preview", "problems"} {
+		for _, mode := range []string{"split", "wrap", "menu", "comments", "prompt", "confirm", "context", "preview", "problems", "timeline"} {
 			var s review.State
 			s.Update(diffview.Snapshot{Files: []diffview.File{f}})
 			s.PatchFocused = true
@@ -176,6 +176,9 @@ func TestAdvancedViewsAndControlsFit(t *testing.T) {
 			case "problems":
 				s.Panel = "Problems"
 				s.Problems = []checks.Problem{{Path: "src/界.go", Line: 12, Message: "expected value"}}
+			case "timeline":
+				s.Panel = "Timeline"
+				s.Timeline = []review.TimelineEntry{{ID: 1, FileCount: 2, Added: 3, Deleted: 1}}
 			case "confirm":
 				s.ConfirmAction = "stage-file"
 				s.ConfirmDetail = "Stage file.go?"
@@ -197,5 +200,18 @@ func TestAdvancedViewsAndControlsFit(t *testing.T) {
 	layout := NewLayoutOptions(120, 30, 40, true)
 	if layout.LeftWidth != 0 || layout.DiffWidth != 120 {
 		t.Fatal("full review did not expand")
+	}
+}
+
+func TestReviewInboxClearState(t *testing.T) {
+	f := diffview.File{Path: "file.go", Scope: diffview.Session, Status: "M", Lines: []string{"@@ -1 +1 @@", "-old", "+new"}}
+	var s review.State
+	s.Source = "session"
+	s.Update(diffview.Snapshot{Files: []diffview.File{f}, FileCount: 1})
+	s.Key(" ", 10)
+	s.Key("I", 10)
+	text := ansi.Strip(strings.Join(renderReview(&s, 60, 15, true), "\n"))
+	if !strings.Contains(text, "Review inbox is clear") {
+		t.Fatalf("missing inbox empty state: %s", text)
 	}
 }

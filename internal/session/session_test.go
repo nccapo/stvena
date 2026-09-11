@@ -172,3 +172,44 @@ func TestCapturePreservesRacyIndexTimestamp(t *testing.T) {
 		t.Fatal("capture changed the real index timestamp")
 	}
 }
+
+func TestObservedBatchesPersistAndRetainIntermediateTrees(t *testing.T) {
+	root := t.TempDir()
+	git(t, root, "init")
+	write(t, root, "file.txt", "zero\n")
+	git(t, root, "add", ".")
+	git(t, root, "commit", "-m", "initial")
+	s, err := session.Open(root, false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	before := s.LastTree
+	write(t, root, "file.txt", "one\n")
+	after, err := s.Capture()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stamp := time.Now().Add(-time.Minute).UTC()
+	if err := s.RecordBatch(before, after, stamp, 1, 1, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordBatch(before, after, stamp, 1, 1, 1); err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Batches) != 1 || s.Batches[0].ID != 1 || !s.Batches[0].ObservedAt.Equal(stamp) {
+		t.Fatalf("recorded batches: %+v", s.Batches)
+	}
+	ref := "refs/stvena/sessions/" + s.ID + "/batches/000001"
+	if git(t, root, "rev-parse", ref) != after {
+		t.Fatal("batch tree was not retained")
+	}
+	reopened, err := session.Open(root, true, s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	if len(reopened.Batches) != 1 || reopened.Batches[0].After != after {
+		t.Fatalf("reopened batches: %+v", reopened.Batches)
+	}
+}

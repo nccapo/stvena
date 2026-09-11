@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.2
+
+- Follow the source range currently selected in Stvena without opening a native
+  editor diff.
+- Send an editor line to TUI review or add a saved editor selection to Stvena's
+  captured context tray.
+- Show cumulative unreviewed-file counts in the status bar.
+
 ## 0.2.1
 
 - Add the Stvena icon to the extension listing.

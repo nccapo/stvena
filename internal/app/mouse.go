@@ -109,17 +109,22 @@ func (s *screenState) mouse(sequence string) {
 			s.review.Key(key, s.visibleLines())
 			return
 		}
-		if s.review.Panel == "Context" || s.review.Panel == "Problems" {
+		if s.review.Panel == "Context" || s.review.Panel == "Problems" || s.review.Panel == "Timeline" {
 			index, total := s.review.TrayIndex, len(s.review.Attachments)
 			if s.review.Panel == "Problems" {
 				index, total = s.review.ProblemIndex, len(s.review.Problems)
+			} else if s.review.Panel == "Timeline" {
+				index, total = s.review.TimelineIndex, len(s.review.Timeline)
 			}
 			start, count := ui.PanelListWindow(index, total, s.layout.DiffHeight)
 			if row >= 1 && row <= count {
 				if s.review.Panel == "Context" {
 					s.review.TrayIndex = start + row - 1
-				} else {
+				} else if s.review.Panel == "Problems" {
 					s.review.ProblemIndex = start + row - 1
+					s.review.Key("enter", s.visibleLines())
+				} else {
+					s.review.TimelineIndex = start + row - 1
 					s.review.Key("enter", s.visibleLines())
 				}
 			}
