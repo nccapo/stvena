@@ -72,6 +72,9 @@ func TestChangesRefreshFromExternalProcess(t *testing.T) {
 			return strings.Contains(strings.Join(found["a.go"].Lines, "\n"), want) &&
 				found["b.go"].Status == "D" && found[added].Status == "A" && e.snapshot.Err == nil
 		})
+		if len(e.batches) == 0 {
+			t.Fatal("observed change was not added to the session timeline")
+		}
 		if e.project.Tree != e.session.Tree || e.snapshot.Tree != e.session.Tree {
 			t.Fatal("views did not refresh to the same captured files")
 		}
@@ -94,6 +97,48 @@ func TestChangesRefreshFromExternalProcess(t *testing.T) {
 		}
 		if !found {
 			t.Fatalf("editor bridge missed edited line: %+v", live.Files)
+		}
+	}
+}
+
+func TestWatcherDeliversFreshEditorRequest(t *testing.T) {
+	root, _ := workflowProject(t)
+	saved, err := session.Open(root, false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer saved.Close()
+	events, stop, done := make(chan any, 8), make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(done)
+		watchSnapshots(root, nil, saved, events, stop)
+	}()
+	defer func() { close(stop); <-done }()
+	select {
+	case event := <-events:
+		if _, ok := event.(diffEvent); !ok {
+			t.Fatalf("first watcher event was %T", event)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("initial watcher refresh stalled")
+	}
+	request := editor.Request{Version: 1, Session: saved.ID, ID: "editor-request", Action: "review", Path: "a.go", Line: 2, EndLine: 2, UpdatedAt: time.Now().UTC()}
+	if err := session.AtomicJSON(filepath.Join(root, ".git", "stvena-request.json"), request); err != nil {
+		t.Fatal(err)
+	}
+	timer := time.NewTimer(10 * time.Second)
+	defer timer.Stop()
+	for {
+		select {
+		case event := <-events:
+			if delivered, ok := event.(editorRequestEvent); ok {
+				if delivered.request.ID != request.ID || delivered.request.Path != "a.go" {
+					t.Fatalf("wrong editor request: %+v", delivered.request)
+				}
+				return
+			}
+		case <-timer.C:
+			t.Fatal("fresh editor request was not delivered")
 		}
 	}
 }

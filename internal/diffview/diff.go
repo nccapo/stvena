@@ -30,6 +30,7 @@ const (
 	Unstaged     Scope = "unstaged"
 	Untracked    Scope = "untracked"
 	Session      Scope = "session"
+	BranchScope  Scope = "branch"
 	ProjectScope Scope = "project"
 )
 

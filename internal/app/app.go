@@ -37,7 +37,10 @@ type outputEvent struct {
 	agent *agentTerminal
 	data  []byte
 }
-type diffEvent struct{ snapshot, session, project diffview.Snapshot }
+type diffEvent struct {
+	snapshot, session, project, branch diffview.Snapshot
+	batches                            []session.Batch
+}
 type operationEvent struct {
 	message string
 	err     error
@@ -61,6 +64,7 @@ type contentEvent struct {
 	key     string
 	content diffview.Content
 }
+type editorRequestEvent struct{ request editor.Request }
 
 // Run starts the requested agent command. With no arguments it runs Codex.
 func Run(args []string) error {
@@ -148,11 +152,19 @@ func Run(args []string) error {
 	if savedSession != nil {
 		defer savedSession.Close()
 	}
+	var editorReview *editor.ReviewPublisher
+	var editorReviewErr error
+	if savedSession != nil {
+		editorReview, editorReviewErr = editor.OpenReview(savedSession)
+		if editorReview != nil {
+			defer editorReview.Close()
+		}
+	}
 	events := make(chan any, 32)
 	stop := make(chan struct{})
 	stopEvents := sync.OnceFunc(func() { close(stop) })
 	defer stopEvents()
-	state := screenState{layout: layout, session: savedSession, root: root, exited: standalone, ratio: 58, agentInput: io.Discard}
+	state := screenState{layout: layout, session: savedSession, root: root, exited: standalone, ratio: 58, agentInput: io.Discard, editorReview: editorReview}
 	defer state.closeAgents()
 	if !standalone {
 		state.launchCommand = append([]string(nil), args...)
@@ -255,6 +267,9 @@ func Run(args []string) error {
 	if sessionErr != nil {
 		state.review.Notice = "Session capture unavailable: " + sessionErr.Error()
 	}
+	if editorReviewErr != nil {
+		state.review.Notice = "Editor review bridge unavailable: " + editorReviewErr.Error()
+	}
 	if standalone {
 		state.diffFocused = true
 		state.fullscreen = true
@@ -318,6 +333,12 @@ func Run(args []string) error {
 				state.workspace.Label = "Workspace"
 				state.sessionView = value.session
 				state.projectView = value.project
+				state.branchView = value.branch
+				entries := make([]review.TimelineEntry, len(value.batches))
+				for i, batch := range value.batches {
+					entries[i] = review.TimelineEntry{ID: batch.ID, Before: batch.Before, After: batch.After, ObservedAt: batch.ObservedAt, FileCount: batch.FileCount, Added: batch.Added, Deleted: batch.Deleted}
+				}
+				state.review.SetTimeline(entries)
 				state.review.LiveTree = value.project.Tree
 				if state.review.LiveTree == "" {
 					state.review.LiveTree = value.snapshot.Tree
@@ -338,6 +359,10 @@ func Run(args []string) error {
 					state.clampScroll()
 					dirty = true
 				}
+			case editorRequestEvent:
+				state.applyEditorRequest(value.request)
+				state.queueContent(contentRequests)
+				dirty = true
 			case inputEvent:
 				state.handleInput(value.data, state.agentInput)
 				if state.dispatch(ctx, events, stop) {
@@ -397,6 +422,9 @@ func Run(args []string) error {
 
 			}
 		case <-renderTicker.C:
+			if state.publishEditorReview() {
+				dirty = true
+			}
 			for _, a := range state.agents {
 				if a.attention.Quiet(time.Now()) {
 					dirty = true
@@ -447,39 +475,41 @@ func Run(args []string) error {
 }
 
 type screenState struct {
-	agents                              []*agentTerminal
-	activeAgentIndex                    int
-	attentionPrevious                   *agentTerminal
-	agentSerial                         map[string]int
-	startAgent                          func([]string, ui.Layout) (*agentTerminal, error)
-	launchCommand                       []string
-	agentPicker                         *ui.AgentPicker
-	layout                              ui.Layout
-	review                              review.State
-	diffFocused                         bool
-	keyboardPending                     []byte
-	keyboardPasting                     bool
-	pending                             []byte
-	lastInput                           time.Time
-	contentID                           int
-	problemID                           int
-	contentStamp                        string
-	root                                string
-	session                             *session.Session
-	workspace, sessionView, projectView diffview.Snapshot
-	fullscreen, exited, busy            bool
-	ratio                               int
-	pendingStage                        *diffview.File
-	pendingHunk                         int
-	workers                             sync.WaitGroup
-	agentName                           string
-	agentInput                          io.Writer
-	bracketedPaste, pastePending        bool
-	pasteInput                          []byte
-	terminalPasting                     bool
-	terminalPasteToAgent                bool
-	terminalPasteMarker                 int
-	mouseDragging                       bool
+	agents                                          []*agentTerminal
+	activeAgentIndex                                int
+	attentionPrevious                               *agentTerminal
+	agentSerial                                     map[string]int
+	startAgent                                      func([]string, ui.Layout) (*agentTerminal, error)
+	launchCommand                                   []string
+	agentPicker                                     *ui.AgentPicker
+	layout                                          ui.Layout
+	review                                          review.State
+	diffFocused                                     bool
+	keyboardPending                                 []byte
+	keyboardPasting                                 bool
+	pending                                         []byte
+	lastInput                                       time.Time
+	contentID                                       int
+	problemID                                       int
+	contentStamp                                    string
+	root                                            string
+	session                                         *session.Session
+	workspace, sessionView, projectView, branchView diffview.Snapshot
+	fullscreen, exited, busy                        bool
+	ratio                                           int
+	pendingStage                                    *diffview.File
+	pendingHunk                                     int
+	workers                                         sync.WaitGroup
+	agentName                                       string
+	agentInput                                      io.Writer
+	bracketedPaste, pastePending                    bool
+	pasteInput                                      []byte
+	terminalPasting                                 bool
+	terminalPasteToAgent                            bool
+	terminalPasteMarker                             int
+	mouseDragging                                   bool
+	editorReview                                    *editor.ReviewPublisher
+	editorReviewReported                            bool
 }
 
 func (s *screenState) visibleLines() int {

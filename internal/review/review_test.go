@@ -2,6 +2,7 @@ package review
 
 import (
 	"testing"
+	"time"
 
 	"github.com/nccapo/stvena/internal/diffview"
 )
@@ -12,6 +13,96 @@ func sample() diffview.Snapshot {
 		{Path: "alpha.go", Scope: diffview.Unstaged, Lines: []string{"@@ -1 +1 @@", "-after", "+again"}},
 		{Path: "目录/新.go", Scope: diffview.Untracked, Lines: []string{"@@ -0,0 +1 @@", "+new"}},
 	}}
+}
+
+func TestReviewInboxShowsNewAndChangedAgainFiles(t *testing.T) {
+	var s State
+	s.Source = "workspace"
+	s.Update(sample())
+	s.Key(" ", 10)
+	s.Key("I", 10)
+	if !s.Inbox || len(s.Indices) != 2 || s.Current().Scope != diffview.Unstaged {
+		t.Fatalf("review inbox did not hide reviewed file: %+v", s.Indices)
+	}
+	next := sample()
+	next.Files[0].Lines = []string{"@@ -1 +1 @@", "-before", "+changed again"}
+	s.Update(next)
+	files, hunks, changed := s.ReviewInboxCounts()
+	if len(s.Indices) != 3 || files != 3 || hunks != 3 || changed != 1 {
+		t.Fatalf("changed file did not re-enter inbox: indices=%v counts=%d/%d/%d", s.Indices, files, hunks, changed)
+	}
+	s.Key("I", 10)
+	if s.Inbox || len(s.Indices) != 3 {
+		t.Fatal("all-changes view was not restored")
+	}
+}
+
+func TestReviewInboxRemovesFileAfterLastHunk(t *testing.T) {
+	var s State
+	s.Source = "session"
+	s.Update(diffview.Snapshot{Files: []diffview.File{{Path: "file.go", Scope: diffview.Session, Lines: []string{"@@ -1 +1 @@", "-old", "+new"}}}})
+	s.Key("I", 10)
+	s.Browser, s.PatchFocused, s.Scroll = false, true, 1
+	s.Key("H", 10)
+	if len(s.Indices) != 0 {
+		t.Fatalf("reviewed hunk stayed in inbox: %v", s.Indices)
+	}
+	_, _, changed := s.ReviewInboxCounts()
+	if changed != 0 {
+		t.Fatal("a current hunk review was labeled changed again")
+	}
+}
+
+func TestLiveRefreshKeepsSemanticPatchAnchor(t *testing.T) {
+	before := diffview.Snapshot{Files: []diffview.File{{Path: "file.go", Scope: diffview.Unstaged, Lines: []string{
+		"@@ -10,3 +10,3 @@", " context", "-old", "+kept", " context",
+	}}}}
+	var s State
+	s.Source = "workspace"
+	s.Update(before)
+	s.Browser, s.PatchFocused, s.Scroll = false, true, 3
+	after := diffview.Snapshot{Files: []diffview.File{{Path: "file.go", Scope: diffview.Unstaged, Lines: []string{
+		"@@ -1 +1 @@", "-first", "+changed", "@@ -10,3 +11,3 @@", " context", "-old", "+kept", " context",
+	}}}}
+	s.Update(after)
+	if s.Scroll != 6 || s.DisplayLines()[s.Scroll].Text != "+kept" {
+		t.Fatalf("semantic anchor moved: scroll=%d line=%+v", s.Scroll, s.DisplayLines()[s.Scroll])
+	}
+	after.Files[0].Scope = diffview.Staged
+	s.Update(after)
+	if s.Current().Scope != diffview.Staged || s.Scroll != 6 {
+		t.Fatalf("anchor did not survive workspace scope transition: %+v", s)
+	}
+}
+
+func TestWorkingRangeFollowsSelectionAndSurvivingLines(t *testing.T) {
+	s := State{Snapshot: diffview.Snapshot{Files: []diffview.File{{Path: "file.go", Scope: diffview.Session, Lines: []string{
+		"@@ -4,2 +4,3 @@", "-removed", "+first", "+second", " context",
+	}}}}, Indices: []int{0}, PatchFocused: true, Scroll: 3, Selecting: true, SelectionStart: 2}
+	path, start, end, ok := s.WorkingRange()
+	if !ok || path != "file.go" || start != 4 || end != 5 {
+		t.Fatalf("working selection: %q %d-%d %v", path, start, end, ok)
+	}
+	s.Selecting, s.Scroll = false, 1
+	_, start, end, ok = s.WorkingRange()
+	if !ok || start != 4 || end != 4 {
+		t.Fatalf("removed line did not choose surviving neighbor: %d-%d %v", start, end, ok)
+	}
+}
+
+func TestTimelineTracksNewerBatchesWhilePinned(t *testing.T) {
+	entries := []TimelineEntry{{ID: 1, After: "one", ObservedAt: time.Now()}, {ID: 2, After: "two", ObservedAt: time.Now()}}
+	s := State{Pinned: true, Snapshot: diffview.Snapshot{Tree: "one"}}
+	s.SetTimeline(entries)
+	if s.NewerBatches != 1 || s.TimelineIndex != 1 {
+		t.Fatalf("timeline state: %+v", s)
+	}
+	s.Key("L", 10)
+	s.Key("up", 10)
+	s.Key("enter", 10)
+	if s.TimelineIndex != 0 || s.Request != "timeline-open" {
+		t.Fatalf("timeline navigation: %+v", s)
+	}
 }
 
 func TestNextUnreviewedSkipsMarksAndFindsChangedVersions(t *testing.T) {
@@ -104,6 +195,40 @@ func TestReviewInvalidatedOnlyForChangedFile(t *testing.T) {
 	s.Update(diffview.Snapshot{})
 	if len(s.reviewed) != 0 || s.Current() != nil {
 		t.Fatal("removed files retained review state")
+	}
+}
+
+func TestHunkCleanupHandlesColonInPath(t *testing.T) {
+	snapshot := diffview.Snapshot{Files: []diffview.File{{Path: "name:part.go", Scope: diffview.Session, Lines: []string{"@@ -1 +1 @@", "-old", "+new"}}}}
+	var s State
+	s.Source = "session"
+	s.Update(snapshot)
+	s.Hunks = map[string]bool{HunkID(snapshot.Files[0], 0): true}
+	s.Update(diffview.Snapshot{})
+	if len(s.Hunks) != 0 {
+		t.Fatalf("stale colon-path hunk survived cleanup: %v", s.Hunks)
+	}
+}
+
+func TestReviewMarksStayIndependentAcrossSources(t *testing.T) {
+	workspace := sample()
+	var s State
+	s.Source = "workspace"
+	s.Update(workspace)
+	s.Key(" ", 10)
+	workspaceKey := workspace.Files[0].Key()
+	branch := diffview.Snapshot{Files: []diffview.File{{Path: "alpha.go", Scope: diffview.BranchScope, Lines: []string{"@@ -1 +1 @@", "-base", "+branch"}}}}
+	s.Source = "branch"
+	s.Update(branch)
+	s.Key(" ", 10)
+	branchKey := branch.Files[0].Key()
+	if _, ok := s.reviewed[workspaceKey]; !ok {
+		t.Fatal("branch view erased workspace review")
+	}
+	s.Source = "workspace"
+	s.Update(workspace)
+	if _, ok := s.reviewed[branchKey]; !ok {
+		t.Fatal("workspace view erased branch review")
 	}
 }
 func TestHunksScrollingAndFileNavigation(t *testing.T) {

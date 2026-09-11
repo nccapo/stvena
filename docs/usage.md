@@ -155,6 +155,12 @@ edits. The top file count counts unique paths; line totals sum the displayed
 scopes. Renames show both paths, and binary/conflicted/incomplete previews are
 explicitly labeled.
 
+**Project files (3)** browses every nonignored file in the latest captured tree,
+including unchanged files. **Branch changes (4)** compares the captured working
+tree with the merge base of `HEAD` and the locally configured/default
+`origin/main`, `main`, `origin/master`, or `master`. It includes committed and
+working changes and never fetches or switches branches.
+
 The code viewer provides:
 
 - Syntax colors in unified diffs and complete files, with old/new line numbers.
@@ -209,6 +215,13 @@ and conflicts cannot be marked reviewed.
 review, skipping reviewed versions and wrapping within the current filter.
 Mark a file with **Space**, then use **N** to continue. Files changed again by
 the agent need review again and return to this queue.
+
+**I** toggles Review inbox, which hides reviewed file versions and counts the
+remaining files, hunks, and items changed again. **L** opens the session timeline.
+Each entry is a stable tree transition observed by Stvena, not a claimed agent
+turn or author. Enter pins that batch for inspection; the header counts newer
+batches, and **P** returns to the live cumulative session diff. Up to 100 batches
+are retained per saved session.
 
 The top visible source line is the keyboard selection. **V** starts a range;
 move to extend it. Selection pins the version. **y** copies selected source text,
@@ -363,11 +376,12 @@ The table below lists defaults.
 | Enter / f / Backspace | Open file / return to browser |
 | v / s / w | Full file / side-by-side diff / wrap lines |
 | F / + / - | Fullscreen review / wider review / wider agent |
-| 1 / 2 / 3 / Tab | Session / Workspace / Project files / workspace scope |
+| 1 / 2 / 3 / 4 / Tab | Session / Workspace / Project files / Branch changes / workspace scope |
 | / | Filter paths in browser; search text in code |
 | m / M / : | Next / previous text match / go to source line |
 | n / p | Next / previous file |
 | N | Open the next unreviewed file in the current view |
+| I / L | Toggle Review inbox / open observed session timeline |
 | d/u, PageDown/PageUp | Move half a page |
 | g/G, Home/End | First / last file or source line |
 | [ / ] | Previous / next hunk or full-file change |

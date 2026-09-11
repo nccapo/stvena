@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/nccapo/stvena/internal/attention"
@@ -18,6 +19,20 @@ type AgentSummary struct {
 	Label        string
 	State        attention.State
 	Active, Next bool
+}
+
+type TimelineEntry struct {
+	ID                        uint64
+	Before, After             string
+	ObservedAt                time.Time
+	FileCount, Added, Deleted int
+}
+
+type scrollAnchor struct {
+	line int
+	old  bool
+	text string
+	kind byte
 }
 
 type State struct {
@@ -57,6 +72,7 @@ type State struct {
 	SelectionMouse                    bool
 	SelectionSide                     byte
 	Source                            string
+	Inbox                             bool
 	ProjectRows                       []ProjectEntry
 	TreeIndex                         int
 	ExpandedFolders                   map[string]bool
@@ -75,6 +91,8 @@ type State struct {
 	Hunks                             map[string]bool
 	History                           map[string]Record
 	Comments                          []Comment
+	Timeline                          []TimelineEntry
+	TimelineIndex, NewerBatches       int
 	LastCheck, CheckTree, CheckStatus string
 	CheckLines                        []string
 	CheckRunning                      bool
@@ -93,17 +111,30 @@ func (s *State) Current() *diffview.File {
 	return &s.Snapshot.Files[s.Indices[s.Selected]]
 }
 func (s *State) Update(snapshot diffview.Snapshot) {
+	key, path, anchor := "", "", scrollAnchor{}
+	if f := s.Current(); f != nil {
+		key = f.Key()
+		path = f.Path
+		anchor = s.sourceAnchor()
+	}
 	s.Latest = snapshot
 	if s.Pinned {
 		s.observeCheckpoint(snapshot)
 		return
 	}
-	key := ""
-	if f := s.Current(); f != nil {
-		key = f.Key()
-	}
 	s.Snapshot = snapshot
 	s.filter(key)
+	if f := s.Current(); path != "" && (f == nil || f.Key() != key) {
+		for visible, index := range s.Indices {
+			if s.Snapshot.Files[index].Path == path {
+				s.Selected = visible
+				break
+			}
+		}
+	}
+	if f := s.Current(); f != nil && f.Path == path && anchor.line > 0 && !s.Browser {
+		s.restoreAnchor(anchor)
+	}
 	if s.Source == "project" {
 		return
 	}
@@ -118,8 +149,7 @@ func (s *State) Update(snapshot diffview.Snapshot) {
 		active[f.Key()] = true
 	}
 	for key := range s.reviewed {
-		isSession := strings.HasPrefix(key, string(diffview.Session)+"\x00")
-		if (s.Source == "" || isSession == (s.Source == "session")) && !active[key] {
+		if s.keyBelongsToSource(key) && !active[key] {
 			delete(s.reviewed, key)
 		}
 	}
@@ -131,11 +161,147 @@ func (s *State) Update(snapshot diffview.Snapshot) {
 		}
 	}
 	for id := range s.Hunks {
-		isSession := strings.HasPrefix(id, string(diffview.Session)+"\x00")
-		if (s.Source == "" || isSession == (s.Source == "session")) && !activeHunks[id] {
+		key := id
+		if separator := strings.LastIndexByte(id, ':'); separator >= 0 {
+			key = id[:separator]
+		}
+		if s.keyBelongsToSource(key) && !activeHunks[id] {
 			delete(s.Hunks, id)
 		}
 	}
+}
+
+func (s *State) keyBelongsToSource(key string) bool {
+	scope, _, _ := strings.Cut(key, "\x00")
+	switch s.Source {
+	case "session":
+		return scope == string(diffview.Session)
+	case "branch":
+		return scope == string(diffview.BranchScope)
+	case "project":
+		return false
+	default:
+		return scope != string(diffview.Session) && scope != string(diffview.BranchScope) && scope != string(diffview.ProjectScope)
+	}
+}
+
+func (s *State) sourceAnchor() scrollAnchor {
+	if s.Browser {
+		return scrollAnchor{}
+	}
+	lines := s.DisplayLines()
+	for distance := 0; distance < len(lines); distance++ {
+		for _, index := range []int{s.Scroll + distance, s.Scroll - distance} {
+			if index < 0 || index >= len(lines) {
+				continue
+			}
+			if lines[index].New > 0 {
+				return scrollAnchor{line: lines[index].New, text: lines[index].Text, kind: lines[index].Kind}
+			}
+			if lines[index].Old > 0 {
+				return scrollAnchor{line: lines[index].Old, old: true, text: lines[index].Text, kind: lines[index].Kind}
+			}
+		}
+	}
+	return scrollAnchor{}
+}
+
+func (s *State) restoreAnchor(anchor scrollAnchor) {
+	if s.FullFile {
+		s.Scroll = max(0, anchor.line-1)
+		s.TargetLine = anchor.line
+		return
+	}
+	lines := s.DisplayLines()
+	best, distance := -1, int(^uint(0)>>1)
+	for i, row := range lines {
+		n := row.New
+		if anchor.old {
+			n = row.Old
+		}
+		if row.Text == anchor.text && row.Kind == anchor.kind && n > 0 {
+			d := n - anchor.line
+			if d < 0 {
+				d = -d
+			}
+			if d < distance {
+				best, distance = i, d
+			}
+		}
+	}
+	if best >= 0 {
+		s.Scroll = best
+		return
+	}
+	best, distance = 0, int(^uint(0)>>1)
+	for i, row := range lines {
+		n := row.New
+		if anchor.old {
+			n = row.Old
+		}
+		if n == anchor.line {
+			s.Scroll = i
+			return
+		}
+		if n == 0 {
+			continue
+		}
+		d := n - anchor.line
+		if d < 0 {
+			d = -d
+		}
+		if d < distance {
+			best, distance = i, d
+		}
+	}
+	s.Scroll = best
+}
+
+func (s *State) SetTimeline(entries []TimelineEntry) {
+	wasNewest := len(s.Timeline) == 0 || s.TimelineIndex >= len(s.Timeline)-1
+	s.Timeline = append([]TimelineEntry(nil), entries...)
+	if wasNewest {
+		s.TimelineIndex = max(0, len(entries)-1)
+	} else {
+		s.TimelineIndex = min(s.TimelineIndex, max(0, len(entries)-1))
+	}
+	s.NewerBatches = 0
+	if s.Pinned {
+		for i, entry := range entries {
+			if entry.After == s.Snapshot.Tree {
+				s.NewerBatches = len(entries) - i - 1
+				break
+			}
+		}
+	}
+}
+
+func (s *State) ReviewInboxCounts() (files, hunks, changedAgain int) {
+	files, hunks = s.ReviewCounts(s.Snapshot)
+	for _, f := range s.Snapshot.Files {
+		if s.Reviewed(f) {
+			continue
+		}
+		if previous, ok := s.History[f.Key()]; ok && fingerprint(previous.File) != fingerprint(f) {
+			changedAgain++
+		}
+	}
+	return
+}
+
+func (s *State) ReviewCounts(snapshot diffview.Snapshot) (files, hunks int) {
+	for _, f := range snapshot.Files {
+		if s.Reviewed(f) {
+			continue
+		}
+		files++
+		for h := range HunkRanges(f.Lines) {
+			if !s.HunkReviewed(f, h) {
+				hunks++
+			}
+		}
+	}
+	return
 }
 func (s *State) filter(key string) {
 	s.Indices = nil
@@ -144,6 +310,9 @@ func (s *State) filter(key string) {
 			continue
 		}
 		if !strings.Contains(strings.ToLower(f.Path+" "+f.OldPath), strings.ToLower(s.Query)) {
+			continue
+		}
+		if s.Inbox && s.Reviewed(f) {
 			continue
 		}
 		s.Indices = append(s.Indices, i)
@@ -263,7 +432,7 @@ func (s *State) Key(key string, visible int) {
 	}
 	if s.Panel != "" && s.Prompt == "" && s.ConfirmAction == "" && !s.Menu {
 		switch key {
-		case "1", "2", "3":
+		case "1", "2", "3", "4":
 			s.Panel = ""
 			s.Request = key
 			return
@@ -280,8 +449,8 @@ func (s *State) Key(key string, visible int) {
 	}
 	if s.Source == "project" && s.Panel == "" && s.Prompt == "" {
 		switch key {
-		case "v", "s", "view-diff", "tab", " ", "H", "N", "R":
-			s.Notice = "Project files · 1: session changes · 2: workspace changes"
+		case "v", "s", "view-diff", "tab", " ", "H", "N", "R", "I":
+			s.Notice = "Project files · 1: session · 2: workspace · 4: branch changes"
 			return
 		}
 	}
@@ -351,7 +520,7 @@ func (s *State) Key(key string, visible int) {
 			s.filter("")
 		}
 	case "tab":
-		if s.Source == "session" {
+		if s.Source != "workspace" && s.Source != "" {
 			break
 		}
 		s.Scope = (s.Scope + 1) % len(Scopes)
@@ -451,6 +620,9 @@ func (s *State) Key(key string, visible int) {
 					s.Hunks[HunkID(*f, h)] = true
 				}
 				s.Remember(*f)
+			}
+			if s.Inbox {
+				s.filter("")
 			}
 		}
 	}

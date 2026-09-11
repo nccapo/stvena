@@ -3,6 +3,7 @@
 const { execFile } = require('node:child_process');
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const { randomUUID } = require('node:crypto');
 const { promisify } = require('node:util');
 const exec = promisify(execFile);
 const oidPattern = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
@@ -17,7 +18,8 @@ async function git(root, ...args) {
 async function discover(folder) {
   const root = (await git(folder, 'rev-parse', '--show-toplevel')).toString().replace(/\n$/, '');
   const gitDir = (await git(root, 'rev-parse', '--absolute-git-dir')).toString().replace(/\n$/, '');
-  return { root, statePath: path.join(gitDir, 'stvena-live.json') };
+  return { root, statePath: path.join(gitDir, 'stvena-live.json'),
+    reviewPath: path.join(gitDir, 'stvena-review.json'), requestPath: path.join(gitDir, 'stvena-request.json') };
 }
 
 function validPath(value) {
@@ -65,12 +67,37 @@ function parseState(data) {
 }
 
 async function readState(repo) {
+  return readMetadata(repo.statePath, 8 * 1024 * 1024, parseState);
+}
+
+function parseReviewState(data) {
+  const state = JSON.parse(data);
+  if (state.version !== 1 || typeof state.session !== 'string' || !state.session ||
+      !Number.isSafeInteger(state.sequence) || state.sequence < 0 || typeof state.active !== 'boolean' ||
+      typeof state.updatedAt !== 'string' || !Number.isFinite(Date.parse(state.updatedAt)) ||
+      (state.changedAt !== undefined && !Number.isFinite(Date.parse(state.changedAt))) ||
+      !Number.isSafeInteger(state.unreviewedFiles) || state.unreviewedFiles < 0 ||
+      !Number.isSafeInteger(state.unreviewedHunks) || state.unreviewedHunks < 0 ||
+      !Number.isSafeInteger(state.newerBatches) || state.newerBatches < 0) {
+    throw new Error('Unsupported or invalid Stvena review state; update Stvena and the extension together.');
+  }
+  const focus = state.focus;
+  if (focus !== undefined && (!focus || !['session', 'workspace', 'project', 'branch'].includes(focus.source) ||
+      typeof focus.tree !== 'string' || !oidPattern.test(focus.tree) || /^0+$/.test(focus.tree) || !validPath(focus.path) ||
+      !Number.isSafeInteger(focus.line) || focus.line < 1 ||
+      !Number.isSafeInteger(focus.endLine) || focus.endLine < focus.line)) {
+    throw new Error('Invalid Stvena review focus.');
+  }
+  return state;
+}
+
+async function readMetadata(filePath, limit, parse) {
   try {
     // Reject oversized metadata before parsing it. Source stays in Git objects.
-    const file = await fs.open(repo.statePath, 'r');
+    const file = await fs.open(filePath, 'r');
     try {
-      if ((await file.stat()).size > 8 * 1024 * 1024) throw new Error('Stvena live state exceeds 8 MiB.');
-      return parseState(await file.readFile('utf8'));
+      if ((await file.stat()).size > limit) throw new Error('Stvena metadata exceeds its size limit.');
+      return parse(await file.readFile('utf8'));
     } finally {
       await file.close();
     }
@@ -80,8 +107,32 @@ async function readState(repo) {
   }
 }
 
+async function readReviewState(repo) {
+  return readMetadata(repo.reviewPath, 64 * 1024, parseReviewState);
+}
+
 function isLive(state, now = Date.now()) {
   return !!state && state.active && now - Date.parse(state.updatedAt) < 30000;
+}
+
+async function writeRequest(repo, request) {
+  if (!isLive(repo.review)) throw new Error('Stvena review is not active in this repository.');
+  if (!request || !['review', 'context'].includes(request.action) || !validPath(request.path) ||
+      !Number.isSafeInteger(request.line) || request.line < 1 ||
+      !Number.isSafeInteger(request.endLine) || request.endLine < request.line) {
+    throw new Error('Invalid Stvena editor request.');
+  }
+  const value = { version: 1, session: repo.review.session, id: randomUUID(), action: request.action,
+    path: request.path, line: request.line, endLine: request.endLine, updatedAt: new Date().toISOString() };
+  const temporary = `${repo.requestPath}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    await fs.writeFile(temporary, `${JSON.stringify(value)}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+    await fs.rename(temporary, repo.requestPath);
+  } catch (error) {
+    await fs.rm(temporary, { force: true }).catch(() => {});
+    throw error;
+  }
+  return value;
 }
 
 async function readBlob(root, oid) {
@@ -92,4 +143,4 @@ async function readBlob(root, oid) {
   return data.toString('utf8');
 }
 
-module.exports = { discover, readState, parseState, isLive, readBlob };
+module.exports = { discover, readState, parseState, readReviewState, parseReviewState, isLive, writeRequest, readBlob };

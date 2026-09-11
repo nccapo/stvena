@@ -3,6 +3,7 @@ package review
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -85,5 +86,37 @@ func TestContextDraftPersistsAndProjectDoesNotEraseReviewMarks(t *testing.T) {
 	}
 	if len(saved.Attachments) != 1 || saved.ContextQuestion != "Explain this" {
 		t.Fatal("draft was not saved")
+	}
+}
+
+func TestEditorRangeUsesCapturedProjectContent(t *testing.T) {
+	root := t.TempDir()
+	if out, err := exec.Command("git", "-C", root, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %s: %v", out, err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "file.go"), []byte("one\ntwo\nthree\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", root, "add", "file.go").CombinedOutput(); err != nil {
+		t.Fatalf("git add: %s: %v", out, err)
+	}
+	treeBytes, err := exec.Command("git", "-C", root, "write-tree").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree := strings.TrimSpace(string(treeBytes))
+	project := diffview.Project(root, tree)
+	if err := os.WriteFile(filepath.Join(root, "file.go"), []byte("different live source\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var s State
+	if err := s.AddCapturedRange(project, "file.go", 2, 3); err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Attachments) != 1 || !strings.Contains(s.Attachments[0].Message, "two\nthree") || strings.Contains(s.Attachments[0].Message, "different live source") {
+		t.Fatalf("wrong captured editor context: %+v", s.Attachments)
+	}
+	if err := s.AddCapturedRange(project, "file.go", 3, 4); err == nil {
+		t.Fatal("out-of-range editor selection accepted")
 	}
 }

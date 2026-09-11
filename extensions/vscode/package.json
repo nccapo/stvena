@@ -2,7 +2,7 @@
   "name": "stvena-live",
   "displayName": "Stvena Live",
   "description": "Follow agent reads and edits with live source navigation and line highlights.",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "icon": "media/icon.png",
   "publisher": "nccapo",
   "license": "MIT",
@@ -51,6 +51,14 @@
       {
         "command": "stvena.openChange",
         "title": "Stvena: Open Captured Edit"
+      },
+      {
+        "command": "stvena.reviewInStvena",
+        "title": "Stvena: Review This Line in Stvena"
+      },
+      {
+        "command": "stvena.addSelectionToContext",
+        "title": "Stvena: Add Selection to Context"
       }
     ],
     "views": {
@@ -80,6 +88,16 @@
           "group": "navigation"
         }
       ],
+      "editor/context": [
+        {
+          "command": "stvena.reviewInStvena",
+          "group": "stvena@1"
+        },
+        {
+          "command": "stvena.addSelectionToContext",
+          "group": "stvena@2"
+        }
+      ],
       "commandPalette": [
         {
           "command": "stvena.openChange",
@@ -104,6 +122,15 @@
           "dark": "#cca70020",
           "light": "#b8950018",
           "highContrast": "#cca70030"
+        }
+      },
+      {
+        "id": "stvena.reviewBackground",
+        "description": "Background of the source range currently selected in Stvena review.",
+        "defaults": {
+          "dark": "#b180d720",
+          "light": "#7c3aab18",
+          "highContrast": "#b180d730"
         }
       }
     ]

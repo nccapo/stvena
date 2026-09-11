@@ -1,6 +1,7 @@
 # Stvena product direction
 
-Explored 8 September 2026. These are proposals, not shipped features. Research
+Explored 8 September 2026 and updated 11 September 2026. Later sections include
+implementation status as well as proposals. Research
 uses official documentation, not hands-on competitor benchmarks. The local
 README and implementation were checked to distinguish additions from existing
 functionality.
@@ -153,9 +154,9 @@ success criteria on their own.
 The opportunity is the quality of this combined terminal workflow. This research
 does not establish that any proposal is absent from all competing products.
 
-## Implementation update — 8 September 2026
+## Implementation update — 11 September 2026
 
-The first three builds now have working initial implementations:
+The first four builds now have working initial implementations:
 
 - **Project files:** a searchable list of all captured files, including unchanged
   files, with full-file viewing and existing mouse/keyboard selection. This first
@@ -170,7 +171,16 @@ The first three builds now have working initial implementations:
   locations; open tested source; collect failures with nearby captured code; and
   explicitly rerun checks. Raw logs remain available. Ambiguous/generated paths
   can be collected with a source-unavailable explanation instead of guessed code.
+- **Session timeline:** retain up to 100 stable tree transitions observed by the
+  700 ms capture loop, browse them chronologically, pin a batch, and count newer
+  observed batches. These are explicitly observations rather than agent-turn or
+  authorship claims. Named bookmarks, arbitrary checkpoint comparison, review
+  event history, and restore remain future work.
 
-The session timeline, symbol/reference navigation and task evidence checklist
-remain proposals. The README is the current guide to supported controls and
-limits.
+Review inbox filtering, a merge-base Branch changes source, semantic live cursor
+anchoring, and a bidirectional source-only VS Code review bridge were also added.
+The editor continues to open normal working files; Stvena remains the sole diff
+surface.
+
+Symbol/reference navigation and the task evidence checklist remain proposals.
+The README is the current guide to supported controls and limits.

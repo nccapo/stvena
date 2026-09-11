@@ -1,7 +1,8 @@
 # Editor integration
 
-Stvena's VS Code extension follows reported reads and consecutive captured workspace versions. It
-opens the working source with `showTextDocument`, selecting the changed line
+Stvena's VS Code extension follows reported reads, consecutive captured workspace
+versions, and the source range currently selected in TUI review. It opens the
+ordinary working source with `showTextDocument`, selecting the relevant line
 and preserving keyboard focus during automatic updates, as described in the
 [VS Code API](https://code.visualstudio.com/api/references/vscode-api#window.showTextDocument).
 Deleted files are not opened; automatic following skips unsaved buffers.
@@ -45,8 +46,10 @@ sequence. The bridge publishes even when the terminal review is pinned. A
 capture error preserves the last successful batch and reports an error until a
 successful capture. Descriptor-write failures also appear in the terminal.
 
-This is a latest-state protocol, without acknowledgements, replay, per-agent
-attribution, or an ordered history within each batch. Source retention follows
+This descriptor is a latest-state protocol, without acknowledgements, replay,
+per-agent attribution, or an ordered history within each batch. The retained TUI
+session timeline is separate and is not exposed as patch data here. Source
+retention follows
 Stvena's existing snapshot refs: do not treat old object IDs as a durable archive.
 One Stvena process per repository remains the supported model.
 
@@ -76,6 +79,37 @@ Markers clear after 15 seconds, on pause/disconnect, or while buffers are dirty.
 Saved edits retain workspace-wide attribution; an edit marker does not claim
 that a specific agent made the change. Only the latest followed location is marked.
 
+## Review bridge and editor requests
+
+Review state uses a separate source-only `stvena-review.json` descriptor in the
+resolved Git directory. It contains no patch or source text; Stvena remains the
+authoritative diff surface. The version 1 fields are:
+
+| Field | Meaning |
+| --- | --- |
+| `version`, `session`, `sequence`, `active`, `updatedAt`, `changedAt` | Versioned session identity, change counter, lifecycle, heartbeat, and last focus/count change |
+| `focus` | Optional captured `tree`, review `source`, repository-relative `path`, and inclusive one-based `line` / `endLine` |
+| `unreviewedFiles`, `unreviewedHunks` | Remaining review work in the live cumulative session view |
+| `newerBatches` | Observed timeline batches newer than the currently pinned batch |
+
+The extension renders the current focus as a persistent purple source marker and
+opens only the working file. Consumers must validate the tree object ID, path,
+ranges, counts, timestamps, and heartbeat exactly as they do for live edit state.
+The captured tree records provenance; the ordinary working file may have moved on.
+
+User-initiated editor actions atomically replace `stvena-request.json` with
+owner-only permissions. A version 1 request contains `version`, matching
+`session`, unique `id`, `action` (`review` or `context`), validated repository
+`path`, inclusive one-based `line` / `endLine`, and `updatedAt`. Stvena accepts a
+request once, only for its current session, and only within a one-minute freshness
+window. `review` navigates the TUI without opening an IDE diff. `context` loads
+the range from Stvena's immutable latest project capture rather than trusting
+editor text, then saves it in the context tray. Dirty editor buffers are rejected
+by the extension before either request is written.
+
+This is a local, last-request-wins control channel without acknowledgements. An
+extension should say that it sent a request, not claim that Stvena completed it.
+
 ## Verification
 
 Run `go test -race ./...`, `go vet ./...`, `go build ./...`, and `npm test` from
@@ -92,8 +126,8 @@ code /tmp/stvena-editor-project \
 ```
 
 The host smoke test writes only to that disposable workspace. It checks automatic
-source opening and line selection, reads without saved changes, read expiry,
-pause/resume, addition/deletion handling,
+source opening and line selection, reads without saved changes, TUI review focus,
+editor request descriptors, read expiry, pause/resume, addition/deletion handling,
 unsaved buffer preservation, and the absence of diff tabs. Use the editor's equivalent CLI to validate a VS Code
 fork. Passing the protocol tests alone does not establish editor compatibility.
 

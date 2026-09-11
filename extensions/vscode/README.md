@@ -83,6 +83,20 @@ Navigation pauses while the activity list and saved source continue updating.
 Click again to resume. **Stvena: Show Latest Activity** opens the latest read or changed file.
 Automatic following skips unsaved buffers so their content and cursor stay intact.
 
+The bidirectional review features below currently require source builds of both
+the extension and the accompanying Stvena binary. Published 0.2.x builds provide
+the read/edit following described above.
+
+When the TUI is inside a file, a purple review marker follows its current source
+line or selected range. It is persistent while that review location is active;
+Stvena still renders the diff, and the extension opens only the ordinary working
+file. From an editor context menu or the Command Palette:
+
+- **Stvena: Review This Line in Stvena** opens the corresponding captured change
+  in the TUI, falling back to the captured project file when it is unchanged.
+- **Stvena: Add Selection to Context** adds the matching immutable captured lines
+  to Stvena's saved context tray. Save the editor buffer first.
+
 ## Following reads
 
 Stvena adds a `PostToolUse` observer to standard `stvena codex` and `stvena claude`
@@ -160,12 +174,13 @@ and [Claude hooks](https://code.claude.com/docs/en/hooks) interfaces.
 
 ## Local data
 
-The extension reads a private `stvena-live.json` descriptor inside the worktree's
-Git directory and opens working source files. There is no listening
+The extension reads private `stvena-live.json` and `stvena-review.json`
+descriptors inside the worktree's Git directory and writes validated user actions
+atomically to `stvena-request.json`. It opens working source files. There is no listening
 network service, account, or telemetry. Stvena's tool observer stores only the
 latest read location in its private session cache and includes it in the bridge.
-The extension neither
-writes source files nor runs terminal commands on the agent's behalf.
+The extension neither writes source files nor runs terminal commands on the
+agent's behalf.
 
 For connection or preview errors, select **Stvena Live** in the Output panel.
 

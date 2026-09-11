@@ -73,15 +73,24 @@ func renderReview(s *review.State, width, height int, focused bool) []string {
 		if pinnedVersion == "" {
 			pinnedVersion = s.Snapshot.Version
 		}
-		if s.Latest.Version != pinnedVersion {
+		if s.NewerBatches > 0 {
+			source += fmt.Sprintf(" (%d newer batches)", s.NewerBatches)
+		} else if s.Latest.Version != pinnedVersion {
 			source += " (updates available)"
 		}
 	}
 	if !s.Pinned {
 		source += " · Live"
 	}
-	if s.Source != "session" && s.Source != "project" {
+	if s.Source == "workspace" || s.Source == "" {
 		source += " · " + scope
+	}
+	if s.Inbox {
+		files, hunks, changed := s.ReviewInboxCounts()
+		source += fmt.Sprintf(" · Inbox %df/%dh", files, hunks)
+		if changed > 0 {
+			source += fmt.Sprintf(" · %d changed again", changed)
+		}
 	}
 	if s.Checkpoint != nil {
 		freshness := "live unchanged"
@@ -174,7 +183,10 @@ func renderReview(s *review.State, width, height int, focused bool) []string {
 			add(line)
 		}
 	} else if s.Snapshot.Err == nil && len(s.Indices) == 0 {
-		if s.Snapshot.FileCount == 0 {
+		if s.Inbox && s.Query == "" && s.Scope == 0 {
+			add(dim + " Review inbox is clear.")
+			add(muted + " Press I to show all changes.")
+		} else if s.Snapshot.FileCount == 0 {
 			if s.Source == "session" {
 				add(dim + " No changes in this session yet.")
 				add(muted + " Existing edits are in Workspace (2).")

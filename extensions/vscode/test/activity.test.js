@@ -1,7 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { fresh, readRow, label, createMarkers } = require('../src/activity');
+const { fresh, readRow, reviewRow, label, createMarkers } = require('../src/activity');
 const { parseState } = require('../src/bridge');
 
 test('read activity validates paths, ranges, session and freshness', () => {
@@ -19,6 +19,15 @@ test('read activity validates paths, ranges, session and freshness', () => {
   }
   state.activity.updatedAt = new Date(Date.now() - 16000).toISOString();
   assert.equal(readRow({ state }), undefined);
+});
+
+test('review focus becomes a persistent source marker', () => {
+  const repo = { review: { sequence: 5, updatedAt: new Date().toISOString(),
+    focus: { source: 'branch', path: 'a.go', line: 3, endLine: 6 } } };
+  const row = reviewRow(repo);
+  assert.equal(row.kind, 'review');
+  assert.equal(row.file.ranges[0].end, 6);
+  assert.match(label(row), /Review in Stvena · branch · lines 3–6/);
 });
 
 test('read/edit markers cover reported ranges, clamp EOF, and clear on dirty, expiry and disconnect', () => {
@@ -49,4 +58,11 @@ test('read/edit markers cover reported ranges, clamp EOF, and clear on dirty, ex
   assert.deepEqual(paints.get(1), []);
   markers.show({ ...row, at: new Date(Date.now() - 16000).toISOString() }, editor.document.uri);
   assert.deepEqual(paints.get(0), []);
+  markers.show({ ...row, kind: 'review', at: new Date(Date.now() - 60000).toISOString() }, editor.document.uri);
+  assert.equal(paints.get(2).length, 1);
+  markers.show(row, editor.document.uri);
+  assert.equal(paints.get(0).length, 1);
+  assert.equal(paints.get(2).length, 1);
+  markers.setReviews([]);
+  assert.deepEqual(paints.get(2), []);
 });

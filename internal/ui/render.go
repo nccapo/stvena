@@ -281,8 +281,8 @@ var FooterControls = []FooterControl{
 	{"Ctrl-G", "focus", "Switch panes"}, {"Ctrl-]", "new-agent", "New agent"},
 	{"Ctrl-N", "next-agent", "Next agent"}, {"Ctrl-P", "previous-agent", "Previous agent"},
 	{"Ctrl-W", "close-agent", "Close agent"}, {"Ctrl-Y", "next-attention", "Next attention"},
-	{"1", "1", "Changes"}, {"2", "2", "Workspace"}, {"3", "3", "Files"},
-	{"B", "B", "Context"}, {"b", "b", "Paste to agent"}, {"T", "T", "Checks"},
+	{"1", "1", "Changes"}, {"2", "2", "Workspace"}, {"3", "3", "Files"}, {"4", "4", "Branch"},
+	{"B", "B", "Context"}, {"b", "b", "Paste to agent"}, {"T", "T", "Checks"}, {"L", "L", "Timeline"},
 	{"K", "K", "Checkpoint"}, {"a", "a", "Actions"}, {"F", "F", "Expand"},
 	{"?", "?", "Configuration"}, {"Ctrl-Q", "quit-app", "Quit all"}, {"F6", "footer", "Bottom panel"},
 }

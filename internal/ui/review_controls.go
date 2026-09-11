@@ -39,7 +39,11 @@ func baseReviewControls(s *review.State) []reviewControl {
 		return []reviewControl{{"enter", label}, {"left", "←: Parent"}, {"/", "/: Find file"}}
 	}
 	if s.Browser {
-		return []reviewControl{{"enter", "Enter: open"}, {"/", "/: find file"}, {"N", "N: next unreviewed"}}
+		inbox := "I: Inbox"
+		if s.Inbox {
+			inbox = "I: All changes"
+		}
+		return []reviewControl{{"enter", "Enter: open"}, {"/", "/: find file"}, {"N", "N: next unreviewed"}, {"I", inbox}}
 	}
 	if s.Selecting {
 		return []reviewControl{{"x", "x: Collect"}, {"b", "b: Add to agent"}, {"y", "y: Copy"}, {"V", "V: Clear"}, {"P", "P: Resume live"}}
@@ -51,7 +55,11 @@ func baseReviewControls(s *review.State) []reviewControl {
 	if f := s.Current(); f != nil && s.Reviewed(*f) {
 		mark = "Space: Unmark"
 	}
-	return []reviewControl{{" ", mark}, {"N", "N: Next unreviewed"}, {"e", "e: Open editor"}}
+	inbox := "I: Inbox"
+	if s.Inbox {
+		inbox = "I: All changes"
+	}
+	return []reviewControl{{" ", mark}, {"N", "N: Next unreviewed"}, {"I", inbox}, {"e", "e: Open editor"}}
 }
 
 func reviewControlBar(s *review.State) string {
@@ -165,6 +173,8 @@ func basePanelControls(s *review.State) []reviewControl {
 		return []reviewControl{{"enter", "Enter: Source"}, {"x", "x: Collect failure"}, {"t", "t: Rerun"}, {"esc", "Esc: Logs"}}
 	case "Checks":
 		return []reviewControl{{"o", "o: Problems"}, {"t", "t: Run / rerun"}, {"esc", "Esc: Back"}}
+	case "Timeline":
+		return []reviewControl{{"enter", "Enter: Open batch"}, {"esc", "Esc: Back"}}
 	}
 	return nil
 }
