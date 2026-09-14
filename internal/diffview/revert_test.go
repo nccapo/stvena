@@ -228,3 +228,46 @@ func TestRevertRefusesUnsupportedScopes(t *testing.T) {
 		t.Fatal("accepted an empty batch")
 	}
 }
+
+func TestHunkSpansMapPatchHunksToWorkingLines(t *testing.T) {
+	f := File{Lines: []string{
+		"diff --git a/f b/f", "--- a/f", "+++ b/f",
+		"@@ -1,3 +1,3 @@", " one", "-two", "+TWO", " three",
+		"@@ -10,4 +10,3 @@", " ten", "-eleven", "-twelve", " thirteen",
+	}}
+	spans := HunkSpans(f)
+	if len(spans) != 2 {
+		t.Fatalf("expected two spans, got %+v", spans)
+	}
+	// The changed line is the second line of the first hunk.
+	if spans[0] != (LineSpan{2, 2}) {
+		t.Fatalf("first hunk span %+v", spans[0])
+	}
+	// A deletion-only hunk points at the surviving neighbour line.
+	if spans[1] != (LineSpan{11, 11}) {
+		t.Fatalf("deletion hunk span %+v", spans[1])
+	}
+}
+
+func TestHunkSpansAlignWithHunkOrder(t *testing.T) {
+	root, path := revertRepo(t, []string{"one", "two", "3", "4", "5", "6", "7", "8", "9", "ten"})
+	after := []string{"ONE", "two", "3", "4", "5", "6", "7", "8", "9", "TEN"}
+	write(t, path, after)
+	f := only(t, root, Unstaged)
+	spans := HunkSpans(f)
+	starts := 0
+	for _, line := range f.Lines {
+		if strings.HasPrefix(line, "@@ ") {
+			starts++
+		}
+	}
+	if len(spans) != starts {
+		t.Fatalf("%d spans for %d hunks", len(spans), starts)
+	}
+	if spans[0].Start != 1 {
+		t.Fatalf("first hunk should start at line 1: %+v", spans[0])
+	}
+	if last := spans[len(spans)-1]; last.End != 10 {
+		t.Fatalf("last hunk should end at line 10: %+v", last)
+	}
+}

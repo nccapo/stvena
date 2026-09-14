@@ -7,9 +7,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nccapo/stvena/internal/attention"
 	"github.com/nccapo/stvena/internal/diffview"
+	"github.com/nccapo/stvena/internal/editor"
+	"github.com/nccapo/stvena/internal/review"
 )
 
 func rejectGit(t *testing.T, root string, args ...string) {
@@ -350,5 +353,145 @@ func TestTrayUndoKeepsTheChange(t *testing.T) {
 	}
 	if got, _ := os.ReadFile(path); !strings.Contains(string(got), "AGENT") {
 		t.Fatalf("undone rejection still reverted the file: %s", got)
+	}
+}
+
+// editorState builds a screenState whose session view holds one two-hunk file.
+func editorState(t *testing.T) (*screenState, diffview.File) {
+	t.Helper()
+	root := t.TempDir()
+	rejectGit(t, root, "init")
+	path := filepath.Join(root, "file.txt")
+	if err := os.WriteFile(path, []byte("one\ntwo\n3\n4\n5\n6\n7\n8\n9\nten\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	rejectGit(t, root, "add", ".")
+	rejectGit(t, root, "commit", "-m", "initial")
+	if err := os.WriteFile(path, []byte("ONE\ntwo\n3\n4\n5\n6\n7\n8\n9\nTEN\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	var file diffview.File
+	for _, f := range diffview.Collect(root).Files {
+		if f.Scope == diffview.Unstaged {
+			file = f
+		}
+	}
+	s := &screenState{root: root}
+	s.sessionView = diffview.Snapshot{Root: root, Files: []diffview.File{file}, Tree: "tree"}
+	s.sessionView.Finish()
+	return s, file
+}
+
+func editorRequest(action, path, hunkID string) editor.Request {
+	return editor.Request{Version: 1, ID: action + "-1", Action: action, Path: path,
+		Line: 1, EndLine: 1, HunkID: hunkID, UpdatedAt: time.Now().UTC()}
+}
+
+func TestEditorAcceptAndRejectUseTheSameStateAsTheKeys(t *testing.T) {
+	s, file := editorState(t)
+	first := editor.HunkRef(review.HunkID(file, 0))
+
+	s.applyEditorRequest(editorRequest("accept", "file.txt", first))
+	if !s.review.HunkReviewed(file, 0) {
+		t.Fatal("editor accept did not mark the hunk reviewed")
+	}
+	if s.review.HunkReviewed(file, 1) {
+		t.Fatal("accepting one hunk accepted another")
+	}
+	if s.lastEditorRequest == nil || s.lastEditorRequest.Status != "applied" {
+		t.Fatalf("accept not acknowledged: %+v", s.lastEditorRequest)
+	}
+
+	second := editor.HunkRef(review.HunkID(file, 1))
+	request := editorRequest("reject", "file.txt", second)
+	request.Text = "wrong rename"
+	s.applyEditorRequest(request)
+	pending := s.review.PendingRejections()
+	if len(pending) != 1 || pending[0].Reason != "wrong rename" {
+		t.Fatalf("editor reject did not queue: %+v", pending)
+	}
+	if s.lastEditorRequest.Status != "queued" {
+		t.Fatalf("reject acknowledged as %q", s.lastEditorRequest.Status)
+	}
+	// Queueing must not touch the working tree.
+	if got, _ := os.ReadFile(filepath.Join(s.root, "file.txt")); !strings.Contains(string(got), "TEN") {
+		t.Fatalf("editor reject wrote to disk immediately: %s", got)
+	}
+
+	s.applyEditorRequest(editorRequest("undo-reject", "file.txt", second))
+	if len(s.review.PendingRejections()) != 0 {
+		t.Fatal("editor undo did not clear the queue")
+	}
+	if s.lastEditorRequest.Status != "applied" {
+		t.Fatalf("undo acknowledged as %q", s.lastEditorRequest.Status)
+	}
+}
+
+func TestEditorRefusesAStaleHunkToken(t *testing.T) {
+	s, file := editorState(t)
+	stale := editor.HunkRef("this hunk no longer exists")
+	s.applyEditorRequest(editorRequest("reject", "file.txt", stale))
+	if len(s.review.PendingRejections()) != 0 {
+		t.Fatal("acted on a hunk the editor could not have seen")
+	}
+	if s.lastEditorRequest == nil || s.lastEditorRequest.Status != "refused" ||
+		!strings.Contains(s.lastEditorRequest.Message, "changed since") {
+		t.Fatalf("stale token not refused clearly: %+v", s.lastEditorRequest)
+	}
+
+	s.applyEditorRequest(editorRequest("accept", "missing.txt", ""))
+	if s.lastEditorRequest.Status != "refused" {
+		t.Fatalf("unknown path accepted: %+v", s.lastEditorRequest)
+	}
+	// A whole-file request still works on the real file.
+	s.applyEditorRequest(editorRequest("accept", "file.txt", ""))
+	if !s.review.Reviewed(file) {
+		t.Fatal("whole-file accept did not mark the file reviewed")
+	}
+}
+
+func TestPublishedReviewFilesCarryHunkStateAndPendingWait(t *testing.T) {
+	s, file := editorState(t)
+	s.review.SetHunkReviewed(file, 0, true)
+	if err := s.review.Reject(file, 1, 10, 10, ""); err != nil {
+		t.Fatal(err)
+	}
+	files, truncated := s.reviewFilesForEditor()
+	if truncated || len(files) != 1 {
+		t.Fatalf("unexpected published files: %+v truncated=%v", files, truncated)
+	}
+	hunks := files[0].Hunks
+	if len(hunks) != 2 {
+		t.Fatalf("expected two hunks, got %+v", hunks)
+	}
+	if !hunks[0].Reviewed || hunks[0].Rejected {
+		t.Fatalf("first hunk state wrong: %+v", hunks[0])
+	}
+	if hunks[1].Reviewed || !hunks[1].Rejected {
+		t.Fatalf("second hunk state wrong: %+v", hunks[1])
+	}
+	// Working-file coordinates, not diff-line offsets.
+	if hunks[0].Start != 1 || hunks[1].End != 10 {
+		t.Fatalf("hunks not located in the working file: %+v", hunks)
+	}
+	if hunks[0].ID == hunks[1].ID || len(hunks[0].ID) != 64 {
+		t.Fatalf("hunk tokens are not distinct opaque refs: %+v", hunks)
+	}
+
+	// With no agent the queue is ready immediately; a running agent makes it wait.
+	pending := s.pendingRejectionState()
+	if pending == nil || pending.Count != 1 || pending.AppliesAt != "now" {
+		t.Fatalf("pending state without an agent: %+v", pending)
+	}
+	live := terminalState(t)
+	live.root, live.sessionView, live.review = s.root, s.sessionView, s.review
+	live.activeAgent().attention.Hooked = true
+	live.activeAgent().attention.Execution = attention.Running
+	if pending = live.pendingRejectionState(); pending == nil || pending.AppliesAt != "turn-end" || pending.Reason == "" {
+		t.Fatalf("running agent not reflected in pending state: %+v", pending)
+	}
+	live.activeAgent().attention.Hooked = false
+	if pending = live.pendingRejectionState(); pending == nil || pending.AppliesAt != "manual" {
+		t.Fatalf("unhooked agent should need a manual apply: %+v", pending)
 	}
 }

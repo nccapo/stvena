@@ -121,3 +121,58 @@ func stagedNotice(root string, targets []Target) string {
 	sort.Strings(remaining)
 	return "Reverted in the working tree only; the staged copy still holds the change: " + strings.Join(remaining, ", ")
 }
+
+// LineSpan is an inclusive, one-based range of new-file lines.
+type LineSpan struct {
+	Start, End int
+}
+
+// HunkSpans returns the working-file lines each hunk of f changes, indexed the
+// same way as review hunk indices: the order of "@@ " lines in the patch. A
+// hunk that only deletes lines points at the surviving neighbour, which is
+// where an editor should place its marker.
+func HunkSpans(f File) []LineSpan {
+	var spans []LineSpan
+	line, inHunk := 1, false
+	for _, text := range f.Lines {
+		if strings.HasPrefix(text, "@@ ") {
+			fields := strings.Fields(text)
+			if len(fields) < 3 {
+				continue
+			}
+			_, _ = fmt.Sscanf(strings.Split(fields[2], ",")[0], "+%d", &line)
+			spans = append(spans, LineSpan{})
+			inHunk = true
+			continue
+		}
+		if !inHunk || len(spans) == 0 || text == "" {
+			continue
+		}
+		span := &spans[len(spans)-1]
+		switch text[0] {
+		case '+', '-':
+			current := max(1, line)
+			if span.Start == 0 || current < span.Start {
+				span.Start = current
+			}
+			if current > span.End {
+				span.End = current
+			}
+			if text[0] == '+' {
+				line++
+			}
+		case ' ':
+			line++
+		}
+	}
+	for i := range spans {
+		if spans[i].Start == 0 {
+			// A metadata-only hunk still needs a position in the file.
+			spans[i] = LineSpan{Start: 1, End: 1}
+		}
+		if spans[i].End < spans[i].Start {
+			spans[i].End = spans[i].Start
+		}
+	}
+	return spans
+}

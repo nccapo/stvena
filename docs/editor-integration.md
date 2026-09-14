@@ -91,6 +91,23 @@ authoritative diff surface. The version 1 fields are:
 | `focus` | Optional captured `tree`, review `source`, repository-relative `path`, and inclusive one-based `line` / `endLine` |
 | `unreviewedFiles`, `unreviewedHunks` | Remaining review work in the live cumulative session view |
 | `newerBatches` | Observed timeline batches newer than the currently pinned batch |
+| `features` | Request actions this Stvena accepts; absent means only `review` and `context` |
+| `tree` | Captured tree the `files` below describe |
+| `files` | Per-file review state, each with `path`, optional `oldPath`, `status`, `reviewed`, `rejected`, `binary`, and `hunks` |
+| `truncated` | Set when the change set exceeded 500 files or 5000 hunks |
+| `pendingRejections` | Optional `count`, `appliesAt` (`now`, `turn-end` or `manual`) and `reason` |
+| `lastRequest` | Optional acknowledgement: `id`, `action`, `status` (`applied`, `queued`, `refused`), `message`, `at` |
+
+Each hunk has an opaque 64-character hex `id` and inclusive one-based `start` /
+`end` lines **in the ordinary working file**, not offsets into a patch. A
+deletion-only hunk points at the surviving neighbour. The id is derived from the
+hunk's content, so a hunk the agent edited after the editor drew it produces a
+different id and any request naming the old one is refused. Consumers must treat
+the id as opaque and echo it back unchanged.
+
+**Every field from `features` onward is optional.** An older Stvena omits them
+and a consumer must treat absence as "this build cannot do that", never as a
+protocol error. Gate UI on `features` rather than on a version number.
 
 The extension renders the current focus as a persistent purple source marker and
 opens only the working file. Consumers must validate the tree object ID, path,
@@ -99,16 +116,41 @@ The captured tree records provenance; the ordinary working file may have moved o
 
 User-initiated editor actions atomically replace `stvena-request.json` with
 owner-only permissions. A version 1 request contains `version`, matching
-`session`, unique `id`, `action` (`review` or `context`), validated repository
-`path`, inclusive one-based `line` / `endLine`, and `updatedAt`. Stvena accepts a
+`session`, unique `id`, an `action` the descriptor's `features` advertises,
+validated repository `path`, inclusive one-based `line` / `endLine`, and
+`updatedAt`. It may also carry `hunkId` (a hunk id from the descriptor; absent
+means the whole file) and `text` (at most 4096 bytes, used as a rejection
+reason). `apply-rejections` and `next-unreviewed` act on the whole queue and
+carry no location.
+
+| Action | Effect |
+| --- | --- |
+| `review` | Navigates the TUI without opening an IDE diff |
+| `context` | Loads the range from the immutable capture into the context tray |
+| `accept` | Marks the file or hunk reviewed — the same state the Space and H keys write |
+| `reject` | Queues the file or hunk for reverting; **never writes to the working tree here** |
+| `undo-reject` | Removes a queued rejection |
+| `apply-rejections` | Applies the queue now, overriding the turn-boundary wait |
+| `next-unreviewed` | Moves the TUI to the next unreviewed file |
+
+A rejection is queued, not applied. Stvena reverts it only when every live agent
+is between turns, because reverting under a working agent makes it re-apply the
+change. `pendingRejections.appliesAt` says whether the queue is about to run
+(`now`), is waiting for a turn to end (`turn-end`), or will only ever run when
+the user asks (`manual`, for an agent that reports no turn boundaries). An
+editor should show that wait rather than appearing stuck. Stvena accepts a
 request once, only for its current session, and only within a one-minute freshness
 window. `review` navigates the TUI without opening an IDE diff. `context` loads
 the range from Stvena's immutable latest project capture rather than trusting
 editor text, then saves it in the context tray. Dirty editor buffers are rejected
 by the extension before either request is written.
 
-This is a local, last-request-wins control channel without acknowledgements. An
-extension should say that it sent a request, not claim that Stvena completed it.
+This remains a local, last-request-wins control channel. `lastRequest` reports
+what Stvena did with the request it most recently accepted, so an extension can
+show a real outcome; until a matching `id` appears there, an extension should
+say that it sent a request rather than claim Stvena completed it. Because the
+channel is last-request-wins, a request written before the previous one is
+acknowledged can replace it.
 
 ## Verification
 

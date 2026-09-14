@@ -420,19 +420,7 @@ func (s *State) AdvancedKey(key string, visible int) bool {
 			s.Notice = "Move to a diff hunk first"
 			return true
 		}
-		if s.Hunks == nil {
-			s.Hunks = map[string]bool{}
-		}
-		id := HunkID(*f, h)
-		wasReviewed := s.HunkReviewed(*f, h)
-		if hash, ok := s.reviewed[f.Key()]; ok && hash == fingerprint(*f) {
-			for h := range hunks {
-				s.Hunks[HunkID(*f, h)] = true
-			}
-		}
-		delete(s.reviewed, f.Key())
-		s.Hunks[id] = !wasReviewed
-		s.Remember(*f)
+		s.SetHunkReviewed(*f, h, !s.HunkReviewed(*f, h))
 		if s.Inbox && s.Reviewed(*f) {
 			s.filter("")
 		}

@@ -360,6 +360,54 @@ func (s *State) Reviewed(f diffview.File) bool {
 	}
 	return true
 }
+
+// SetFileReviewed marks or unmarks every hunk of f. The editor bridge and the
+// Space key both go through here so the two surfaces can never disagree about
+// what has been accepted.
+func (s *State) SetFileReviewed(f diffview.File, reviewed bool) {
+	if f.Truncated || f.Status == "U" {
+		return
+	}
+	if !reviewed {
+		delete(s.reviewed, f.Key())
+		for h := range HunkRanges(f.Lines) {
+			delete(s.Hunks, HunkID(f, h))
+		}
+		return
+	}
+	if s.reviewed == nil {
+		s.reviewed = make(map[string][32]byte)
+	}
+	if s.Hunks == nil {
+		s.Hunks = map[string]bool{}
+	}
+	s.reviewed[f.Key()] = fingerprint(f)
+	for h := range HunkRanges(f.Lines) {
+		s.Hunks[HunkID(f, h)] = true
+	}
+	s.Remember(f)
+}
+
+// SetHunkReviewed marks or unmarks one hunk. A file-level mark is expanded into
+// per-hunk marks first, so unmarking one hunk never silently accepts the rest.
+func (s *State) SetHunkReviewed(f diffview.File, h int, reviewed bool) {
+	hunks := HunkRanges(f.Lines)
+	if h < 0 || h >= len(hunks) {
+		return
+	}
+	if s.Hunks == nil {
+		s.Hunks = map[string]bool{}
+	}
+	if hash, ok := s.reviewed[f.Key()]; ok && hash == fingerprint(f) {
+		for i := range hunks {
+			s.Hunks[HunkID(f, i)] = true
+		}
+	}
+	delete(s.reviewed, f.Key())
+	s.Hunks[HunkID(f, h)] = reviewed
+	s.Remember(f)
+}
+
 func (s *State) ReviewedCount() int {
 	n := 0
 	for _, f := range s.Snapshot.Files {
@@ -608,24 +656,7 @@ func (s *State) Key(key string, visible int) {
 	case " ":
 		s.Request = "save"
 		if f := s.Current(); f != nil && !f.Truncated && f.Status != "U" {
-			if s.reviewed == nil {
-				s.reviewed = make(map[string][32]byte)
-			}
-			if s.Reviewed(*f) {
-				delete(s.reviewed, f.Key())
-				for h := range HunkRanges(f.Lines) {
-					delete(s.Hunks, HunkID(*f, h))
-				}
-			} else {
-				s.reviewed[f.Key()] = fingerprint(*f)
-				if s.Hunks == nil {
-					s.Hunks = map[string]bool{}
-				}
-				for h := range HunkRanges(f.Lines) {
-					s.Hunks[HunkID(*f, h)] = true
-				}
-				s.Remember(*f)
-			}
+			s.SetFileReviewed(*f, !s.Reviewed(*f))
 			if s.Inbox {
 				s.filter("")
 			}

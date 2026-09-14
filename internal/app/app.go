@@ -518,6 +518,7 @@ type screenState struct {
 	mouseDragging                                   bool
 	pendingRejectionDraft                           string
 	agentTyped                                      bool
+	lastEditorRequest                               *editor.RequestResult
 	pasteOverride                                   string
 	editorReview                                    *editor.ReviewPublisher
 	editorReviewReported                            bool

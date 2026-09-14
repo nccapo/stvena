@@ -88,8 +88,55 @@ function parseReviewState(data) {
       !Number.isSafeInteger(focus.endLine) || focus.endLine < focus.line)) {
     throw new Error('Invalid Stvena review focus.');
   }
+  // Fields below were added after version 1. An older Stvena omits them, so an
+  // absent value means "this build cannot do that", never a protocol error.
+  if (state.features !== undefined && (!Array.isArray(state.features) ||
+      state.features.some(name => typeof name !== 'string'))) {
+    throw new Error('Invalid Stvena feature list.');
+  }
+  if (state.files !== undefined) {
+    if (!Array.isArray(state.files)) throw new Error('Invalid Stvena review files.');
+    for (const file of state.files) {
+      if (!file || !validPath(file.path) || (file.oldPath !== undefined && !validPath(file.oldPath)) ||
+          typeof file.status !== 'string' || !/^[AMDRCTU?]$/.test(file.status)) {
+        throw new Error('Invalid Stvena review file.');
+      }
+      if (file.hunks !== undefined) {
+        if (!Array.isArray(file.hunks)) throw new Error('Invalid Stvena review hunks.');
+        for (const hunk of file.hunks) {
+          if (!hunk || typeof hunk.id !== 'string' || !/^[0-9a-f]{64}$/.test(hunk.id) ||
+              !Number.isSafeInteger(hunk.start) || hunk.start < 1 ||
+              !Number.isSafeInteger(hunk.end) || hunk.end < hunk.start) {
+            throw new Error('Invalid Stvena review hunk.');
+          }
+        }
+      }
+    }
+  }
+  const pending = state.pendingRejections;
+  if (pending !== undefined && (!pending || !Number.isSafeInteger(pending.count) || pending.count < 0 ||
+      !['now', 'turn-end', 'manual'].includes(pending.appliesAt))) {
+    throw new Error('Invalid Stvena pending rejections.');
+  }
+  const last = state.lastRequest;
+  if (last !== undefined && (!last || typeof last.id !== 'string' || !last.id ||
+      typeof last.action !== 'string' || !['applied', 'queued', 'refused'].includes(last.status) ||
+      !Number.isFinite(Date.parse(last.at)))) {
+    throw new Error('Invalid Stvena request result.');
+  }
   return state;
 }
+
+// supports reports whether the running Stvena accepts a request action. An
+// older build advertises nothing, so only the two original actions are assumed.
+function supports(review, action) {
+  const features = review?.features;
+  if (!Array.isArray(features)) return action === 'review' || action === 'context';
+  return features.includes(action);
+}
+
+// Actions that operate on the whole queue rather than one located change.
+const pathlessActions = new Set(['apply-rejections', 'next-unreviewed']);
 
 async function readMetadata(filePath, limit, parse) {
   try {
@@ -117,13 +164,28 @@ function isLive(state, now = Date.now()) {
 
 async function writeRequest(repo, request) {
   if (!isLive(repo.review)) throw new Error('Stvena review is not active in this repository.');
-  if (!request || !['review', 'context'].includes(request.action) || !validPath(request.path) ||
+  if (!request || typeof request.action !== 'string') throw new Error('Invalid Stvena editor request.');
+  if (!supports(repo.review, request.action)) {
+    throw new Error(`This Stvena version does not support "${request.action}". Update the stvena binary.`);
+  }
+  const located = !pathlessActions.has(request.action);
+  if (located && (!validPath(request.path) ||
       !Number.isSafeInteger(request.line) || request.line < 1 ||
-      !Number.isSafeInteger(request.endLine) || request.endLine < request.line) {
+      !Number.isSafeInteger(request.endLine) || request.endLine < request.line)) {
     throw new Error('Invalid Stvena editor request.');
   }
+  if (request.hunkId !== undefined && !/^[0-9a-f]{64}$/.test(request.hunkId)) {
+    throw new Error('Invalid Stvena hunk reference.');
+  }
+  if (request.text !== undefined && (typeof request.text !== 'string' ||
+      Buffer.byteLength(request.text, 'utf8') > 4096)) {
+    throw new Error('Rejection reason is too long.');
+  }
   const value = { version: 1, session: repo.review.session, id: randomUUID(), action: request.action,
-    path: request.path, line: request.line, endLine: request.endLine, updatedAt: new Date().toISOString() };
+    path: located ? request.path : '', line: located ? request.line : 0,
+    endLine: located ? request.endLine : 0, updatedAt: new Date().toISOString() };
+  if (request.hunkId !== undefined) value.hunkId = request.hunkId;
+  if (request.text) value.text = request.text;
   const temporary = `${repo.requestPath}.${process.pid}.${randomUUID()}.tmp`;
   try {
     await fs.writeFile(temporary, `${JSON.stringify(value)}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
@@ -143,4 +205,4 @@ async function readBlob(root, oid) {
   return data.toString('utf8');
 }
 
-module.exports = { discover, readState, parseState, readReviewState, parseReviewState, isLive, writeRequest, readBlob };
+module.exports = { discover, readState, parseState, readReviewState, parseReviewState, isLive, supports, writeRequest, readBlob };
