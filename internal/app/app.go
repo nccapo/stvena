@@ -165,6 +165,12 @@ func Run(args []string) error {
 	stopEvents := sync.OnceFunc(func() { close(stop) })
 	defer stopEvents()
 	state := screenState{layout: layout, session: savedSession, root: root, exited: standalone, ratio: 58, agentInput: io.Discard, editorReview: editorReview}
+	state.terminalIDE = editor.TerminalName(os.Getenv)
+	if savedSession != nil {
+		if path, err := editor.PresencePath(savedSession); err == nil {
+			state.presencePath = path
+		}
+	}
 	defer state.closeAgents()
 	if !standalone {
 		state.launchCommand = append([]string(nil), args...)
@@ -425,10 +431,21 @@ func Run(args []string) error {
 			if state.publishEditorReview() {
 				dirty = true
 			}
+			if state.refreshIDE() {
+				dirty = true
+			}
 			for _, a := range state.agents {
 				if a.attention.Quiet(time.Now()) {
 					dirty = true
 				}
+			}
+			// Queued rejections wait here until every agent is between turns. A
+			// handoff left over from an explicit Apply now is flushed here too.
+			if state.applyRejections(false) || state.review.Request == "paste-draft" {
+				if state.dispatch(ctx, events, stop) {
+					return nil
+				}
+				dirty = true
 			}
 			if ui.WelcomeVisible(&state.review) && time.Since(lastWelcomeFrame) >= 250*time.Millisecond {
 				state.review.WelcomeFrame = (state.review.WelcomeFrame + 1) % 6
@@ -508,6 +525,12 @@ type screenState struct {
 	terminalPasteToAgent                            bool
 	terminalPasteMarker                             int
 	mouseDragging                                   bool
+	pendingDraft, pendingDraftKind                  string
+	terminalIDE, presencePath, connectedIDE         string
+	ideOffered                                      bool
+	agentTyped                                      bool
+	lastEditorRequest                               *editor.RequestResult
+	pasteOverride                                   string
 	editorReview                                    *editor.ReviewPublisher
 	editorReviewReported                            bool
 }
@@ -538,6 +561,12 @@ func (s *screenState) handleLegacyInput(data []byte, child io.Writer) {
 	forward := make([]byte, 0, len(data))
 	defer func() {
 		if len(forward) > 0 {
+			// Stvena cannot see the CLI's input line. Remembering that the user
+			// typed into it is the only way to know an automatic submit would
+			// send more than the message Stvena pasted.
+			if s.agentInput != nil && child == s.agentInput {
+				s.agentTyped = true
+			}
 			_, _ = child.Write(forward)
 		}
 	}()

@@ -91,6 +91,23 @@ authoritative diff surface. The version 1 fields are:
 | `focus` | Optional captured `tree`, review `source`, repository-relative `path`, and inclusive one-based `line` / `endLine` |
 | `unreviewedFiles`, `unreviewedHunks` | Remaining review work in the live cumulative session view |
 | `newerBatches` | Observed timeline batches newer than the currently pinned batch |
+| `features` | Request actions this Stvena accepts; absent means only `review` and `context` |
+| `tree` | Captured tree the `files` below describe |
+| `files` | Per-file review state, each with `path`, optional `oldPath`, `status`, `reviewed`, `rejected`, `binary`, and `hunks` |
+| `truncated` | Set when the change set exceeded 500 files or 5000 hunks |
+| `pendingRejections` | Optional `count`, `appliesAt` (`now`, `turn-end` or `manual`) and `reason` |
+| `lastRequest` | Optional acknowledgement: `id`, `action`, `status` (`applied`, `queued`, `refused`), `message`, `at` |
+
+Each hunk has an opaque 64-character hex `id` and inclusive one-based `start` /
+`end` lines **in the ordinary working file**, not offsets into a patch. A
+deletion-only hunk points at the surviving neighbour. The id is derived from the
+hunk's content, so a hunk the agent edited after the editor drew it produces a
+different id and any request naming the old one is refused. Consumers must treat
+the id as opaque and echo it back unchanged.
+
+**Every field from `features` onward is optional.** An older Stvena omits them
+and a consumer must treat absence as "this build cannot do that", never as a
+protocol error. Gate UI on `features` rather than on a version number.
 
 The extension renders the current focus as a persistent purple source marker and
 opens only the working file. Consumers must validate the tree object ID, path,
@@ -99,16 +116,57 @@ The captured tree records provenance; the ordinary working file may have moved o
 
 User-initiated editor actions atomically replace `stvena-request.json` with
 owner-only permissions. A version 1 request contains `version`, matching
-`session`, unique `id`, `action` (`review` or `context`), validated repository
-`path`, inclusive one-based `line` / `endLine`, and `updatedAt`. Stvena accepts a
+`session`, unique `id`, an `action` the descriptor's `features` advertises,
+validated repository `path`, inclusive one-based `line` / `endLine`, and
+`updatedAt`. It may also carry `hunkId` (a hunk id from the descriptor; absent
+means the whole file) and `text` (at most 4096 bytes, used as a rejection
+reason). `apply-rejections` and `next-unreviewed` act on the whole queue and
+carry no location.
+
+| Action | Effect |
+| --- | --- |
+| `review` | Navigates the TUI without opening an IDE diff |
+| `context` | Loads the range from the immutable capture into the context tray |
+| `accept` | Marks the file or hunk reviewed — the same state the Space and H keys write |
+| `reject` | Queues the file or hunk for reverting; **never writes to the working tree here** |
+| `undo-reject` | Removes a queued rejection |
+| `apply-rejections` | Applies the queue now, overriding the turn-boundary wait |
+| `next-unreviewed` | Moves the TUI to the next unreviewed file |
+| `prompt` | Places `text` and the captured range in the agent's input, unsubmitted |
+
+`prompt` reads the range from Stvena's immutable capture, never from editor
+text, and the draft is pasted rather than submitted: the user reads it and
+presses Enter.
+
+## Editor presence
+
+An extension announces itself by atomically replacing `stvena-ide.json` in the
+resolved Git directory with `version` 1, an `ide` name, its `extension` version,
+and an RFC 3339 `updatedAt` it refreshes at least every 30 seconds. Stvena
+offers IDE mode only while that heartbeat is current: several editors report
+`TERM_PROGRAM=vscode` and the extension may not be installed in the one running
+Stvena, so the environment alone is not evidence of a connection. A missing,
+malformed or stale descriptor simply means no editor is watching. The `ide` name
+reaches the terminal UI, so Stvena strips control characters and truncates it.
+
+A rejection is queued, not applied. Stvena reverts it only when every live agent
+is between turns, because reverting under a working agent makes it re-apply the
+change. `pendingRejections.appliesAt` says whether the queue is about to run
+(`now`), is waiting for a turn to end (`turn-end`), or will only ever run when
+the user asks (`manual`, for an agent that reports no turn boundaries). An
+editor should show that wait rather than appearing stuck. Stvena accepts a
 request once, only for its current session, and only within a one-minute freshness
 window. `review` navigates the TUI without opening an IDE diff. `context` loads
 the range from Stvena's immutable latest project capture rather than trusting
 editor text, then saves it in the context tray. Dirty editor buffers are rejected
 by the extension before either request is written.
 
-This is a local, last-request-wins control channel without acknowledgements. An
-extension should say that it sent a request, not claim that Stvena completed it.
+This remains a local, last-request-wins control channel. `lastRequest` reports
+what Stvena did with the request it most recently accepted, so an extension can
+show a real outcome; until a matching `id` appears there, an extension should
+say that it sent a request rather than claim Stvena completed it. Because the
+channel is last-request-wins, a request written before the previous one is
+acknowledged can replace it.
 
 ## Verification
 
@@ -128,7 +186,15 @@ code /tmp/stvena-editor-project \
 The host smoke test writes only to that disposable workspace. It checks automatic
 source opening and line selection, reads without saved changes, TUI review focus,
 editor request descriptors, read expiry, pause/resume, addition/deletion handling,
-unsaved buffer preservation, and the absence of diff tabs. Use the editor's equivalent CLI to validate a VS Code
+unsaved buffer preservation, and the absence of diff tabs. It also covers the
+accept/reject surface: the actions above a change block, a decision appearing
+before Stvena confirms it, a refused decision rolling back, applying a queued
+rejection, actions disappearing on an unsaved buffer, and a request being
+withheld when the running Stvena does not advertise that action.
+
+On macOS the `code` wrapper detaches and returns before the tests finish. Run
+`/Applications/Visual Studio Code.app/Contents/MacOS/Code` with the same
+arguments to see the result and the exit status. Use the editor's equivalent CLI to validate a VS Code
 fork. Passing the protocol tests alone does not establish editor compatibility.
 
 On 2026-09-10, the original saved-edit smoke test passed in stock VS Code
@@ -136,6 +202,16 @@ On 2026-09-10, the original saved-edit smoke test passed in stock VS Code
 The expanded read/range/pause/expiry smoke test passed in Antigravity. Its
 activity inputs are protocol fixtures; live model-driven hook execution remains
 unverified. Other forks and remote editor hosts remain unverified.
+
+On 2026-09-14, the expanded suite including the accept/reject surface passed in
+stock VS Code 1.137.0 and in Antigravity IDE 2.5.5 (VS Code base 1.107.0), both
+on Apple Silicon, against a source build of the extension.
+
+Check for the `STVENA_HOST_TESTS_PASSED` line, not the exit status. Several
+editor launchers detach and return zero before the tests have run, so a silent
+exit 0 means the suite never reported, not that it passed. Note also that
+`Antigravity IDE.app` is the editor; the separate `Antigravity.app` is a
+different application and blocks on its own auto-update.
 
 For v0.2.0-preview.1, the packaged Stvena Live 0.2.0 VSIX was extracted and tested
 in fresh, isolated VS Code and Antigravity profiles on macOS. Both passed the

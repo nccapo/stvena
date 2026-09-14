@@ -42,14 +42,22 @@ func (s *screenState) pasteToAgent(events chan<- any, stop <-chan struct{}) {
 		s.review.Notice = "Pasting selection…"
 		return
 	}
-	message, err := s.review.SelectionMessage()
-	if s.review.Panel == "Context" || s.review.Panel == "Context preview" {
-		message, err = s.review.ContextMessage()
-	}
-	if s.review.Panel == "Checkpoint draft" && s.review.Checkpoint != nil {
-		message, err = s.review.Checkpoint.Draft, nil
-		if message == "" {
-			err = fmt.Errorf("Finish the checkpoint to prepare its draft first")
+	var message string
+	var err error
+	// An override is an already-assembled draft, such as a rejection handoff.
+	// It is not a code selection, so the panel rules below do not apply to it.
+	if s.pasteOverride != "" {
+		message = s.pasteOverride
+	} else {
+		message, err = s.review.SelectionMessage()
+		if s.review.Panel == "Context" || s.review.Panel == "Context preview" {
+			message, err = s.review.ContextMessage()
+		}
+		if s.review.Panel == "Checkpoint draft" && s.review.Checkpoint != nil {
+			message, err = s.review.Checkpoint.Draft, nil
+			if message == "" {
+				err = fmt.Errorf("Finish the checkpoint to prepare its draft first")
+			}
 		}
 	}
 	if err != nil {
@@ -75,14 +83,56 @@ func (s *screenState) pasteToAgent(events chan<- any, stop <-chan struct{}) {
 }
 func (s *screenState) finishAgentPaste(err error) {
 	s.pastePending = false
+	draft := s.pasteOverride != "" && s.pasteOverride == s.pendingDraft
+	rejection := draft && s.pendingDraftKind == "rejections"
+	s.pasteOverride = ""
 	if err != nil {
 		s.pasteInput = nil
+		// The rejection draft stays queued so the user can resend it; the working
+		// tree has already been reverted and the agent has not been told yet.
+		if rejection {
+			s.review.Notice = fmt.Sprintf("Rejections reverted, but the message did not reach the agent: %v · D → b resends", err)
+			return
+		}
+		if draft {
+			s.pendingDraft, s.pendingDraftKind = "", ""
+		}
 		s.review.Notice = fmt.Sprintf("Paste may be incomplete: %v · inspect the agent before retrying", err)
 		return
+	}
+	kind := s.pendingDraftKind
+	if draft {
+		s.pendingDraft, s.pendingDraftKind = "", ""
+		s.review.RejectionUndelivered = false
 	}
 	if s.exited {
 		s.pasteInput = nil
 		s.review.Notice = "Agent exited during handoff; delivery was not confirmed"
+		return
+	}
+	if draft {
+		s.review.AgentDraft = true
+		s.diffFocused = false
+		s.fullscreen = false
+		s.relayout(s.layout.Width, s.layout.Height)
+		if kind == "prompt" {
+			s.review.Notice = "Question pasted · review it in the agent, then press Enter"
+			return
+		}
+		switch {
+		case !s.review.AutoSubmitRejections:
+			s.review.Notice = "Rejections pasted · review the message in the agent, then press Enter"
+		case s.agentTyped:
+			// Submitting now would also send whatever the user was composing.
+			s.review.Notice = "Rejections pasted below your unsent input · press Enter yourself"
+		default:
+			if _, err := io.WriteString(s.agentInput, "\r"); err != nil {
+				s.review.Notice = "Rejections pasted, but could not submit: " + err.Error()
+				return
+			}
+			s.agentTyped = false
+			s.review.Notice = "Rejections sent to " + s.agentName
+		}
 		return
 	}
 	s.review.AgentDraft = true

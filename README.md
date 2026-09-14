@@ -38,12 +38,19 @@ If Stvena saves you from the "open the IDE just for the diff" loop, consider
 - **Run multiple agents at once.** Keep independent Codex and Claude Code
   terminals running, switch between them, and review their combined changes in
   one workspace.
+- **Accept or reject from your editor.** The Stvena Live extension puts ✓ Accept
+  and ✗ Reject above every change block in the ordinary working file, with
+  Explorer badges for what still needs review. Never a native diff tab.
 - **Follow saved edits in your editor.** The experimental Stvena Live extension
   lists captured activity and mirrors Stvena's current review range in the real
   source file—never a native IDE diff. Editor selections can open TUI review or
   enter Stvena's context tray.
 - **Keep track of your review.** Pin a captured version, mark files and hunks
   reviewed, and see when a reviewed change has changed again.
+- **Accept or reject what the agent wrote.** Accepting is the review mark you
+  already use. Rejecting queues the change, reverts exactly those lines when
+  the agent finishes its turn, and hands the agent a message saying what you
+  turned down so it does not write it again.
 - **Check the code you are looking at.** Run a command in a temporary checkout
   of a captured version, inspect logs, and jump from recognized failures to source.
 - **Stage deliberately.** Stage or unstage files and hunks with confirmation.
@@ -191,6 +198,8 @@ but direct selection paste is supported for Codex and Claude Code.
 | **P** | Pin the displayed version or resume live updates |
 | **K / Z** | Start Review checkpoint / finish and preview its draft |
 | **Space / N** | Mark file reviewed / next unreviewed file |
+| **X / D** | Reject the hunk or file / open the rejections tray |
+| **O** | IDE mode: give the agent the whole terminal |
 | **I / L** | Toggle review inbox / open observed session timeline |
 | **t / T** | Run a check / inspect results |
 | **a / ?** | Actions menu / keyboard help |
@@ -213,6 +222,71 @@ file, and **c** or **x** to save exact-line comments or selections across files.
 **b** pastes it into Codex/Claude Code without submitting, or copies it in
 standalone review. **P** resumes live; changed items need review again. An open
 checkpoint and its feedback survive reopening a saved review.
+
+## Accept and reject agent changes
+
+Marking a file or hunk reviewed (**Space** / **H**) is acceptance: the change
+stays exactly as the agent wrote it. **X** rejects instead. In the diff it
+rejects the change block under the cursor; in the file list it rejects the whole
+file. **D** opens the rejections tray, where **Enter** applies the queue now,
+**u** undoes a queued rejection, and **b** resends a message that did not reach
+the agent.
+
+Rejections are queued, not applied immediately. Stvena does not own the agent's
+edits — Codex and Claude write straight to disk — so reverting a file while the
+agent is still working makes its next edit build on lines that no longer exist,
+makes its tests fail for reasons it cannot see, and commonly makes it re-apply
+the change you just rejected. The queue therefore waits until every live agent
+is between turns, using the same `Stop` hook that drives agent attention. The
+review header shows `N rejected pending` while it waits.
+
+**Without hooks there is no turn boundary to wait for.** Three seconds of
+silence means only that nothing was printed, never that a turn ended, so Stvena
+never applies the queue on its own for an unhooked agent. Use **D → Enter** when
+you know it is safe. Standalone `stvena review`, with no agent running, applies
+rejections immediately.
+
+When the queue applies, every rejection is reverse-applied as a single
+`git apply`, which writes nothing unless all of it applies. A hunk the agent
+edited again after you reviewed it is **refused rather than force-applied**; the
+change stays in your working tree and the message tells the agent to undo it
+itself. Rejecting a file the agent created deletes it, so that one asks for
+confirmation first. A change that is also staged is reverted in the index as
+well when possible, and the notice names any path whose staged copy still holds
+it.
+
+Stvena then pastes a message into the agent describing what you rejected and
+what the working tree now contains — **without submitting it**, like every other
+handoff. Press Enter yourself after reading it. **Actions → Auto-send
+rejections** (**W**) submits automatically instead; it is off by default, is
+shared across projects, and still refuses to submit when you have unsent input
+in the agent, because Stvena cannot see the CLI's input line.
+
+## IDE mode
+
+When the Stvena Live extension connects, Stvena offers **IDE mode** (**O**). The
+review pane closes and the agent gets the whole terminal — which is the point in
+an editor's integrated terminal, where splitting an already short pane again
+costs more than the review pane is worth while the editor is showing the same
+review. **Ctrl-G** still opens review over the full terminal, and **O** returns
+to the split view. The setting is shared across projects.
+
+Stvena never switches IDE mode on by itself. It waits for the extension's own
+heartbeat rather than trusting the terminal environment, because Cursor,
+Windsurf and other forks all identify themselves as VS Code and the extension
+may not be installed in the one that is running. Set `STVENA_IDE` to name an
+editor Stvena does not recognise.
+
+In IDE mode the header carries what the review pane would have shown: remaining
+review work, pending rejections, and the current notice.
+
+## Ask the agent about a selection
+
+Select code in the editor and press **Cmd-K Cmd-A** (**Ctrl-K Ctrl-A** on Linux),
+or use **Stvena: Ask the Agent About This Selection**. Type your question and
+Stvena places it in the agent's input together with the selected code, taken
+from its own capture rather than the editor's buffer. As with every other
+handoff, **Stvena does not press Enter** — read the draft and send it yourself.
 
 ## Work with multiple agents
 
@@ -308,9 +382,10 @@ also report read locations. Blue read markers and amber edit markers show the
 relevant lines with an inline label; markers expire after 15 seconds. Codex
 requires its normal `/hooks` trust review before read reporting runs.
 
-The purple review marker and editor-to-TUI commands currently require source
-builds of both Stvena and the extension from this repository. The published
-0.2.x preview continues to provide read/edit following only.
+Accept and reject, the per-block actions, Explorer badges, asking the agent
+about a selection, and IDE mode need Stvena **0.3.0-preview.1** or a current
+source build. Against an older binary the extension hides what that binary
+cannot do and keeps its 0.2.x read and edit following.
 
 Install **Stvena Live** by **nccapo** from the VS Code Extensions view, or run:
 
@@ -319,26 +394,26 @@ code --install-extension nccapo.stvena-live
 ```
 
 Then install the compatible Stvena binary on macOS or Linux. The extension and
-terminal application are installed separately; editor following requires the
-[v0.2.0-preview.1 binary](https://github.com/nccapo/stvena/releases/tag/v0.2.0-preview.1)
+terminal application are installed separately; the editor features require the
+[v0.3.0-preview.1 binary](https://github.com/nccapo/stvena/releases/tag/v0.3.0-preview.1)
 or a current source build:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/nccapo/stvena/v0.2.0-preview.1/install.sh | \
-  STVENA_VERSION=v0.2.0-preview.1 sh
+curl -fsSL https://raw.githubusercontent.com/nccapo/stvena/v0.3.0-preview.1/install.sh | \
+  STVENA_VERSION=v0.3.0-preview.1 sh
 ```
 
 Open a trusted local Git workspace in VS Code, check that `stvena --version`
-reports `0.2.0-preview.1`, and run `stvena` or `stvena claude` in its integrated
+reports `0.3.0-preview.1`, and run `stvena` or `stvena claude` in its integrated
 terminal. No Go or Node.js installation is needed. The default Stvena installer
 selects the stable release, which predates the editor bridge, so use the explicit
 preview version above.
 
-Stvena Live **0.2.1** includes the Stvena icon in its extension listing. Marketplace
-installations receive updates through VS Code according to your update settings.
-For Antigravity or manual installation, use **Extensions: Install from VSIX…**;
-the original GitHub preview includes extension **0.2.0**, and a current source
-build produces **0.2.1**. See the [extension guide](extensions/vscode/README.md)
+Stvena Live **0.3.0** adds accept and reject. Marketplace installations receive
+updates through VS Code according to your update settings; a pre-release version
+needs **Switch to Pre-Release Version** on the extension page. For Antigravity
+or manual installation, use **Extensions: Install from VSIX…** with the VSIX
+attached to the release. See the [extension guide](extensions/vscode/README.md)
 for both installation paths and troubleshooting.
 
 Click **Stvena: Following** in the status bar to pause or resume navigation;

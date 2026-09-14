@@ -26,15 +26,16 @@ compatible Stvena terminal application:
 2. Install the compatible Stvena binary:
 
    ```sh
-   curl -fsSL https://raw.githubusercontent.com/nccapo/stvena/v0.2.0-preview.1/install.sh | \
-     STVENA_VERSION=v0.2.0-preview.1 sh
+   curl -fsSL https://raw.githubusercontent.com/nccapo/stvena/v0.3.0-preview.1/install.sh | \
+     STVENA_VERSION=v0.3.0-preview.1 sh
    ```
 
 3. Open a trusted local Git project. In the integrated terminal, check
-   `stvena --version` reports `0.2.0-preview.1`, then run `stvena` for Codex or
+   `stvena --version` reports `0.3.0-preview.1`, then run `stvena` for Codex or
    `stvena claude` for Claude Code.
-4. Ask your agent to edit and save a file. **Stvena Live** in Explorer lists the
-   captured edit and opens its source location while focus stays in the terminal.
+4. Ask your agent to edit and save a file. Its change blocks are tinted in the
+   working file with **✓ Accept** and **✗ Reject** above them, and **Stvena
+   Live** in Explorer lists the captured edit while focus stays in the terminal.
 
 No Go or Node.js installation is needed. Use the version above explicitly:
 the default installer selects the stable release, which predates this bridge.
@@ -43,19 +44,57 @@ to your update settings. Update the Stvena binary separately when upgrading it.
 
 ### Manual installation and Antigravity
 
-Download `stvena-live-0.2.0.vsix` from the
-[original GitHub preview](https://github.com/nccapo/stvena/releases/tag/v0.2.0-preview.1),
+Download `stvena-live-0.3.0.vsix` from the
+[v0.3.0-preview.1 release](https://github.com/nccapo/stvena/releases/tag/v0.3.0-preview.1),
 or [build the current extension from source](#build-from-source). In VS Code or
-Antigravity's Command Palette, run **Extensions: Install from VSIX…** and select
-the package, then follow the binary installation and startup steps above.
-The original preview contains extension **0.2.0**; the current source package is
-**0.2.1**. To update a manually installed VSIX, install the newer package.
+Antigravity IDE's Command Palette, run **Extensions: Install from VSIX…** and
+select the package, then follow the binary installation and startup steps above.
+To update a manually installed VSIX, install the newer package.
 
-## What's new in 0.2.1
+## What's new in 0.3.0
 
-Stvena Live now displays the Stvena icon in its extension listing. This release
-retains the read and saved-edit following features introduced in 0.2.0 and works
-with the v0.2.0-preview.1 Stvena binary. See the [changelog](CHANGELOG.md).
+**Accept or reject the agent's changes without leaving your editor.** Every
+change block the agent made is tinted in the working file, with **✓ Accept** and
+**✗ Reject** above it and a badge in the Explorer counting what still needs
+review. It is still your ordinary source file, never a diff tab.
+
+Rejecting reverts those exact lines and tells the agent what you turned down, so
+it does not write the same thing again. It does not happen the instant you click:
+reverting a file while the agent is mid-turn makes its next edit build on lines
+that no longer exist, and often makes it re-apply the very change you rejected.
+The rejection is queued, shown immediately as rejected, and applied when the
+agent finishes its turn. The status bar says how many are waiting and why, and
+clicking it applies them now.
+
+Requires Stvena **0.3.0-preview.1** or newer. Against an older binary the
+extension keeps its 0.2.x read and edit following and hides what that binary
+cannot do. See the [changelog](CHANGELOG.md).
+
+## Accept and reject
+
+| Where | Action |
+| --- | --- |
+| Above each change block | **✓ Accept**, **✗ Reject**, **Reject with reason…** |
+| Above a decided block | **✓ Accepted** / **✗ Rejected**, each with **Undo** |
+| Editor context menu | Accept or reject every change in the file |
+| Status bar | Pending rejections; click to apply them now |
+| Explorer | A badge per file: blocks left to review, ✓ reviewed, ✗ rejected |
+
+Accepting is the same review mark as **Space** in the terminal, and rejecting
+uses the same queue as **X**, so the two surfaces always agree.
+
+**Reject with reason…** is the one worth using. The reason reaches the agent in
+the handoff message, so "this breaks the existing session contract" prevents a
+repeat in a way that a bare rejection does not.
+
+Decisions appear straight away and are confirmed a moment later, because Stvena
+is polled rather than pushed. A decision Stvena refuses — most often a block the
+agent changed again after your editor drew it — is rolled back with an
+explanation rather than silently kept.
+
+Markers and actions are hidden while a file has unsaved changes, since the
+captured lines no longer match what is on screen. Save, and they return. Set
+`stvena.showCodeLens` to false to keep the tinting without the buttons.
 
 ## Troubleshooting
 

@@ -46,12 +46,28 @@ func (s *State) WorkingRange() (path string, start, end int, ok bool) {
 // AddCapturedRange collects an IDE selection from the immutable project tree.
 // It reuses SelectionMessage so IDE- and TUI-created context have identical
 // provenance and size limits.
+// AddCapturedRange saves a range from the immutable capture in the context tray.
 func (s *State) AddCapturedRange(snapshot diffview.Snapshot, path string, start, end int) error {
+	message, err := s.CapturedRangeMessage(snapshot, path, start, end)
+	if err != nil {
+		return err
+	}
+	return s.AddAttachment(Attachment{
+		Label:   fmt.Sprintf("%s:%d–%d", path, start, end),
+		Tree:    snapshot.Tree,
+		Message: message,
+	})
+}
+
+// CapturedRangeMessage wraps a range of captured source the way a selection
+// handoff does. The source comes from the capture, never from editor text: the
+// editor's buffer is not what Stvena reviewed and may have moved on.
+func (s *State) CapturedRangeMessage(snapshot diffview.Snapshot, path string, start, end int) (string, error) {
 	if snapshot.Tree == "" || snapshot.Err != nil {
-		return fmt.Errorf("wait for a captured project version before collecting editor context")
+		return "", fmt.Errorf("wait for a captured project version before collecting editor context")
 	}
 	if start < 1 || end < start {
-		return fmt.Errorf("invalid editor selection")
+		return "", fmt.Errorf("invalid editor selection")
 	}
 	index := -1
 	for i := range snapshot.Files {
@@ -61,18 +77,18 @@ func (s *State) AddCapturedRange(snapshot diffview.Snapshot, path string, start,
 		}
 	}
 	if index < 0 {
-		return fmt.Errorf("%s is not in the captured project", path)
+		return "", fmt.Errorf("%s is not in the captured project", path)
 	}
 	f := snapshot.Files[index]
 	content := diffview.LoadContent(snapshot.Root, f)
 	if content.Err != nil {
-		return content.Err
+		return "", content.Err
 	}
 	if content.Binary {
-		return fmt.Errorf("binary files cannot be added as text context")
+		return "", fmt.Errorf("binary files cannot be added as text context")
 	}
 	if end > len(content.Lines) {
-		return fmt.Errorf("editor selection is outside the captured file; wait for refresh and try again")
+		return "", fmt.Errorf("editor selection is outside the captured file; wait for refresh and try again")
 	}
 	temporary := State{
 		Snapshot:       snapshot,
@@ -86,13 +102,5 @@ func (s *State) AddCapturedRange(snapshot diffview.Snapshot, path string, start,
 		Scroll:         end - 1,
 		SelectionSide:  'n',
 	}
-	message, err := temporary.SelectionMessage()
-	if err != nil {
-		return err
-	}
-	return s.AddAttachment(Attachment{
-		Label:   fmt.Sprintf("%s:%d–%d", path, start, end),
-		Tree:    snapshot.Tree,
-		Message: message,
-	})
+	return temporary.SelectionMessage()
 }

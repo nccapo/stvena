@@ -1,8 +1,8 @@
 {
   "name": "stvena-live",
   "displayName": "Stvena Live",
-  "description": "Follow agent reads and edits with live source navigation and line highlights.",
-  "version": "0.2.2",
+  "description": "Accept or reject agent changes in your editor, and follow agent reads and edits with live source navigation.",
+  "version": "0.3.0",
   "icon": "media/icon.png",
   "publisher": "nccapo",
   "license": "MIT",
@@ -59,6 +59,43 @@
       {
         "command": "stvena.addSelectionToContext",
         "title": "Stvena: Add Selection to Context"
+      },
+      {
+        "command": "stvena.acceptHunk",
+        "title": "Stvena: Accept Change"
+      },
+      {
+        "command": "stvena.unacceptHunk",
+        "title": "Stvena: Undo Accept"
+      },
+      {
+        "command": "stvena.rejectHunk",
+        "title": "Stvena: Reject Change"
+      },
+      {
+        "command": "stvena.rejectHunkWithReason",
+        "title": "Stvena: Reject Change with Reason\u2026"
+      },
+      {
+        "command": "stvena.undoRejectHunk",
+        "title": "Stvena: Undo Reject"
+      },
+      {
+        "command": "stvena.acceptFile",
+        "title": "Stvena: Accept All Changes in This File"
+      },
+      {
+        "command": "stvena.rejectFile",
+        "title": "Stvena: Reject All Changes in This File"
+      },
+      {
+        "command": "stvena.applyRejections",
+        "title": "Stvena: Apply Rejected Changes Now",
+        "icon": "$(check-all)"
+      },
+      {
+        "command": "stvena.askAgent",
+        "title": "Stvena: Ask the Agent About This Selection"
       }
     ],
     "views": {
@@ -86,9 +123,18 @@
           "command": "stvena.showLatest",
           "when": "view == stvena.changes",
           "group": "navigation"
+        },
+        {
+          "command": "stvena.applyRejections",
+          "when": "view == stvena.changes",
+          "group": "navigation"
         }
       ],
       "editor/context": [
+        {
+          "command": "stvena.askAgent",
+          "group": "stvena@0"
+        },
         {
           "command": "stvena.reviewInStvena",
           "group": "stvena@1"
@@ -96,11 +142,39 @@
         {
           "command": "stvena.addSelectionToContext",
           "group": "stvena@2"
+        },
+        {
+          "command": "stvena.acceptFile",
+          "group": "stvena@3"
+        },
+        {
+          "command": "stvena.rejectFile",
+          "group": "stvena@4"
         }
       ],
       "commandPalette": [
         {
           "command": "stvena.openChange",
+          "when": "false"
+        },
+        {
+          "command": "stvena.acceptHunk",
+          "when": "false"
+        },
+        {
+          "command": "stvena.unacceptHunk",
+          "when": "false"
+        },
+        {
+          "command": "stvena.rejectHunk",
+          "when": "false"
+        },
+        {
+          "command": "stvena.rejectHunkWithReason",
+          "when": "false"
+        },
+        {
+          "command": "stvena.undoRejectHunk",
           "when": "false"
         }
       ]
@@ -132,6 +206,51 @@
           "light": "#7c3aab18",
           "highContrast": "#b180d730"
         }
+      },
+      {
+        "id": "stvena.reviewHunkBackground",
+        "description": "Background of an agent change that has not been reviewed.",
+        "defaults": {
+          "dark": "#cca70014",
+          "light": "#b8950010",
+          "highContrast": "#cca70024"
+        }
+      },
+      {
+        "id": "stvena.reviewAcceptedBackground",
+        "description": "Background of an accepted agent change.",
+        "defaults": {
+          "dark": "#89d18510",
+          "light": "#3d8a3d0d",
+          "highContrast": "#89d18520"
+        }
+      },
+      {
+        "id": "stvena.reviewRejectedBackground",
+        "description": "Background of a rejected agent change.",
+        "defaults": {
+          "dark": "#f1707018",
+          "light": "#c5303012",
+          "highContrast": "#f1707028"
+        }
+      }
+    ],
+    "configuration": {
+      "title": "Stvena Live",
+      "properties": {
+        "stvena.showCodeLens": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show Accept and Reject actions above each agent change block."
+        }
+      }
+    },
+    "keybindings": [
+      {
+        "command": "stvena.askAgent",
+        "key": "ctrl+k ctrl+a",
+        "mac": "cmd+k cmd+a",
+        "when": "editorTextFocus"
       }
     ]
   },

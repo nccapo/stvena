@@ -30,7 +30,9 @@ func TestReviewPublisherAndEditorRequests(t *testing.T) {
 		t.Fatal(err)
 	}
 	focus := &ReviewFocus{Tree: saved.Baseline, Source: "session", Path: "file.txt", Line: 2, EndLine: 2}
-	if err := publisher.Publish(focus, 3, 4, 1); err != nil {
+	update := ReviewUpdate{Focus: focus, Tree: saved.Baseline, Unreviewed: 3, UnreviewedHunks: 4, NewerBatches: 1,
+		Files: []ReviewFile{{Path: "file.txt", Status: "M", Hunks: []ReviewHunk{{ID: HunkRef("file.txt:0"), Start: 2, End: 2}}}}}
+	if err := publisher.Publish(update); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(publisher.path)
@@ -44,8 +46,21 @@ func TestReviewPublisherAndEditorRequests(t *testing.T) {
 	if state.Sequence != 1 || state.Focus == nil || state.Focus.Path != "file.txt" || state.UnreviewedHunks != 4 {
 		t.Fatalf("review state: %+v", state)
 	}
-	if err := publisher.Publish(focus, 3, 4, 1); err != nil || publisher.state.Sequence != 1 {
+	if len(state.Files) != 1 || len(state.Files[0].Hunks) != 1 || state.Files[0].Hunks[0].Start != 2 {
+		t.Fatalf("per-hunk state not published: %+v", state.Files)
+	}
+	if len(state.Features) == 0 {
+		t.Fatal("features not advertised")
+	}
+	if err := publisher.Publish(update); err != nil || publisher.state.Sequence != 1 {
 		t.Fatalf("unchanged review advanced: %+v %v", publisher.state, err)
+	}
+	// A changed hunk mark is a real change and must advance the sequence.
+	changed := update
+	changed.Files = []ReviewFile{{Path: "file.txt", Status: "M", Reviewed: true,
+		Hunks: []ReviewHunk{{ID: HunkRef("file.txt:0"), Start: 2, End: 2, Reviewed: true}}}}
+	if err := publisher.Publish(changed); err != nil || publisher.state.Sequence != 2 {
+		t.Fatalf("hunk mark did not advance the sequence: %+v %v", publisher.state, err)
 	}
 
 	reader, err := OpenRequests(saved)

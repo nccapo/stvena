@@ -25,13 +25,22 @@ async function run() {
     await fs.writeFile(repo.statePath + '.tmp', JSON.stringify(value));
     await fs.rename(repo.statePath + '.tmp', repo.statePath);
   }
-  async function writeReview(focus) {
+  async function writeReview(focus, extra = {}) {
     const review = { version: 1, session: value.session, sequence: ++sequence, active: true,
       updatedAt: new Date().toISOString(), changedAt: new Date().toISOString(), focus,
-      unreviewedFiles: 1, unreviewedHunks: 1, newerBatches: 0 };
+      unreviewedFiles: 1, unreviewedHunks: 1, newerBatches: 0, ...extra };
     await fs.writeFile(repo.reviewPath + '.tmp', JSON.stringify(review));
     await fs.rename(repo.reviewPath + '.tmp', repo.reviewPath);
   }
+  const FEATURES = ['review', 'context', 'accept', 'unaccept', 'reject', 'undo-reject',
+    'apply-rejections', 'next-unreviewed'];
+  const HUNK = 'a'.repeat(64);
+  // reviewFile publishes per-hunk state the way Stvena does for a changed file.
+  const reviewFile = (hunk = {}) => ({ features: FEATURES, tree: '1'.repeat(40),
+    files: [{ path: 'reading.txt', status: 'M', hunks: [{ id: HUNK, start: 3, end: 4, ...hunk }] }] });
+  const lensTitles = async file => (await vscode.commands.executeCommand('vscode.executeCodeLensProvider',
+    vscode.Uri.file(path.join(root, file)))).map(lens => lens.command && lens.command.title).filter(Boolean);
+  const readRequest = async () => JSON.parse(await fs.readFile(repo.requestPath, 'utf8'));
   async function publish(before, after, file = 'example.txt') {
     const target = path.join(root, file);
     if (/^0+$/.test(after)) await fs.rm(target, { force: true });
@@ -133,7 +142,79 @@ async function run() {
     request = JSON.parse(await fs.readFile(repo.requestPath, 'utf8'));
     assert.equal(request.action, 'review');
     noDiffs();
-    console.log('STVENA_HOST_TESTS_PASSED: edits, reads, TUI review, editor requests, ranges, pause/resume, expiry, unsaved buffer, no diffs');
+
+    // Accept and reject live above the change block, in the ordinary file.
+    await writeReview(undefined, reviewFile());
+    await waitFor(async () => (await lensTitles('reading.txt')).includes('✓ Accept'),
+      'Accept/Reject actions did not appear above the change block');
+    assert.deepEqual(await lensTitles('reading.txt'), ['✓ Accept', '✗ Reject', 'Reject with reason…']);
+    noDiffs();
+
+    // A decision must show at once, because Stvena is polled rather than pushed.
+    const beforeAccept = (await readRequest()).id;
+    await vscode.commands.executeCommand('stvena.acceptHunk',
+      { root: repo.root, path: 'reading.txt', hunkId: HUNK, start: 3, end: 4 });
+    assert.deepEqual(await lensTitles('reading.txt'), ['✓ Accepted …', 'Undo'],
+      'Accepting did not update the editor before Stvena confirmed it');
+    await waitFor(async () => (await readRequest()).id !== beforeAccept, 'Accept request was not written');
+    request = await readRequest();
+    assert.equal(request.action, 'accept');
+    assert.equal(request.hunkId, HUNK);
+    assert.equal(request.path, 'reading.txt');
+
+    // Once Stvena agrees, the pending marker clears.
+    await writeReview(undefined, reviewFile({ reviewed: true }));
+    await waitFor(async () => (await lensTitles('reading.txt')).includes('✓ Accepted'),
+      'Confirmed acceptance never settled');
+    assert.deepEqual(await lensTitles('reading.txt'), ['✓ Accepted', 'Undo']);
+
+    // A rejection Stvena refuses must roll back rather than linger.
+    await writeReview(undefined, reviewFile());
+    await waitFor(async () => (await lensTitles('reading.txt')).includes('✓ Accept'), 'Review state did not reset');
+    const beforeReject = (await readRequest()).id;
+    await vscode.commands.executeCommand('stvena.rejectHunk',
+      { root: repo.root, path: 'reading.txt', hunkId: HUNK, start: 3, end: 4 });
+    assert.deepEqual(await lensTitles('reading.txt'), ['✗ Rejected …', 'Undo']);
+    await waitFor(async () => (await readRequest()).id !== beforeReject, 'Reject request was not written');
+    const refused = await readRequest();
+    assert.equal(refused.action, 'reject');
+    await writeReview(undefined, { ...reviewFile(), lastRequest: { id: refused.id, action: 'reject',
+      status: 'refused', message: 'that change block has changed since your editor drew it',
+      at: new Date().toISOString() } });
+    await waitFor(async () => (await lensTitles('reading.txt')).includes('✓ Accept'),
+      'A refused rejection stayed on screen');
+
+    // A queued rejection can be applied from the editor.
+    await writeReview(undefined, { ...reviewFile({ rejected: true }),
+      pendingRejections: { count: 1, appliesAt: 'turn-end', reason: 'claude 1 is running' } });
+    await waitFor(async () => (await lensTitles('reading.txt')).includes('✗ Rejected'),
+      'Queued rejection was not shown');
+    const beforeApply = (await readRequest()).id;
+    await vscode.commands.executeCommand('stvena.applyRejections');
+    await waitFor(async () => (await readRequest()).id !== beforeApply, 'Apply request was not written');
+    assert.equal((await readRequest()).action, 'apply-rejections');
+    noDiffs();
+
+    // Actions must disappear while a buffer no longer matches the capture.
+    const dirtyDoc = await vscode.workspace.openTextDocument(vscode.Uri.file(path.join(root, 'reading.txt')));
+    const dirtyEditor = await vscode.window.showTextDocument(dirtyDoc);
+    await dirtyEditor.edit(edit => edit.insert(new vscode.Position(0, 0), 'unsaved '));
+    assert.deepEqual(await lensTitles('reading.txt'), [], 'Actions stayed on an unsaved buffer');
+    await vscode.commands.executeCommand('workbench.action.revertAndCloseActiveEditor');
+
+    // An older Stvena advertises no features; the new actions must refuse.
+    await writeReview(undefined, { tree: '1'.repeat(40),
+      files: [{ path: 'reading.txt', status: 'M', hunks: [{ id: HUNK, start: 3, end: 4 }] }] });
+    await waitFor(async () => (await lensTitles('reading.txt')).includes('✓ Accept'), 'Lens did not return');
+    const beforeSkew = (await readRequest()).id;
+    await vscode.commands.executeCommand('stvena.acceptHunk',
+      { root: repo.root, path: 'reading.txt', hunkId: HUNK, start: 3, end: 4 });
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    assert.equal((await readRequest()).id, beforeSkew, 'Wrote an action an older Stvena cannot read');
+    assert.deepEqual(await lensTitles('reading.txt'), ['✓ Accept', '✗ Reject', 'Reject with reason…'],
+      'A refused send was not rolled back');
+    noDiffs();
+    console.log('STVENA_HOST_TESTS_PASSED: edits, reads, TUI review, editor requests, accept/reject lens, optimistic rollback, apply rejections, version skew, ranges, pause/resume, expiry, unsaved buffer, no diffs');
   } finally {
     await fs.rm(repo.statePath, { force: true });
     await fs.rm(repo.reviewPath, { force: true });

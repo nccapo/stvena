@@ -215,3 +215,79 @@ func TestReviewInboxClearState(t *testing.T) {
 		t.Fatalf("missing inbox empty state: %s", text)
 	}
 }
+
+func TestIDEModeGivesTheAgentTheWholeContentArea(t *testing.T) {
+	split := review.State{}
+	ide := review.State{IDEMode: true}
+	splitLayout := NewLayoutOptions(150, 40, 58, false, &split)
+	ideLayout := NewLayoutOptions(150, 40, 58, false, &ide)
+
+	if splitLayout.DiffHeight <= 0 {
+		t.Fatalf("split view lost its review pane: %+v", splitLayout)
+	}
+	if ideLayout.DiffHeight != 0 || ideLayout.DiffWidth != 0 {
+		t.Fatalf("IDE mode still reserved a review pane: %+v", ideLayout)
+	}
+	if ideLayout.LeftWidth != 150 {
+		t.Fatalf("agent did not get the full width: %+v", ideLayout)
+	}
+	// A wide terminal splits side by side, so the agent gains width there.
+	if ideLayout.LeftWidth <= splitLayout.LeftWidth {
+		t.Fatalf("agent gained no width: %d vs %d", ideLayout.LeftWidth, splitLayout.LeftWidth)
+	}
+	// A short, narrow integrated terminal splits top to bottom. That is the case
+	// this exists for, and there the agent gains the height the review pane took.
+	short := NewLayoutOptions(90, 12, 58, false, &ide)
+	shortSplit := NewLayoutOptions(90, 12, 58, false, &split)
+	if short.LeftHeight <= shortSplit.LeftHeight {
+		t.Fatalf("short terminal gained no agent height: %d vs %d", short.LeftHeight, shortSplit.LeftHeight)
+	}
+	// Review is still reachable: fullscreen overrides IDE mode.
+	full := NewLayoutOptions(150, 40, 58, true, &ide)
+	if full.DiffHeight <= 0 {
+		t.Fatalf("IDE mode hid review even in fullscreen: %+v", full)
+	}
+}
+
+// Notices live inside the review pane, which IDE mode removes. Without a home
+// in the header, every message would simply vanish.
+func TestIDEModeKeepsNoticesVisibleInTheHeader(t *testing.T) {
+	state := review.State{IDEMode: true, Notice: "Rejected hunk · 1 pending"}
+	state.Snapshot = diffview.Snapshot{Files: []diffview.File{{
+		Path: "a.go", Scope: diffview.Session, Status: "M",
+		Lines: []string{"@@ -1 +1 @@", "-old", "+new"},
+	}}}
+	state.Snapshot.Finish()
+	layout := NewLayoutOptions(90, 14, 58, false, &state)
+	if layout.DiffHeight != 0 {
+		t.Fatalf("IDE mode kept a review pane: %+v", layout)
+	}
+	terminal := vt.NewEmulator(layout.LeftWidth, max(1, layout.LeftHeight))
+	defer terminal.Close()
+	var out strings.Builder
+	Render(&out, terminal, &state, layout, false, false, nil)
+	screen := ansi.Strip(out.String())
+	if !strings.Contains(screen, "Rejected hunk") {
+		t.Fatalf("notice was invisible in IDE mode:\n%s", screen)
+	}
+	if !strings.Contains(screen, "to review") {
+		t.Fatalf("remaining review work was invisible in IDE mode:\n%s", screen)
+	}
+
+	// The split view has a review pane of its own, so the header summary is not
+	// added there and the counts are not duplicated.
+	split := state
+	split.IDEMode = false
+	splitLayout := NewLayoutOptions(90, 14, 58, false, &split)
+	splitTerminal := vt.NewEmulator(splitLayout.LeftWidth, max(1, splitLayout.LeftHeight))
+	defer splitTerminal.Close()
+	var splitOut strings.Builder
+	Render(&splitOut, splitTerminal, &split, splitLayout, false, false, nil)
+	splitScreen := ansi.Strip(splitOut.String())
+	if strings.Contains(splitScreen, "to review") {
+		t.Fatalf("split view added the IDE-mode header summary:\n%s", splitScreen)
+	}
+	if !strings.Contains(splitScreen, "Rejected hunk") {
+		t.Fatalf("split view lost the notice entirely:\n%s", splitScreen)
+	}
+}

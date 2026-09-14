@@ -70,6 +70,39 @@ func renderOverlay(s *review.State, width, height int) []string {
 			}
 			content = append(content, "")
 		}
+	case s.Panel == "Rejections":
+		pending := s.PendingRejections()
+		title = fmt.Sprintf("Rejections · %d pending", len(pending))
+		footer = " Enter: apply now · u: undo · b: send message · Esc: back"
+		if s.RejectionUndelivered {
+			content = append(content, cyan+"A rejection message has not reached the agent yet · b sends it", "")
+		}
+		if len(pending) == 0 {
+			if len(content) == 0 {
+				content = []string{"No pending rejections.", "Select a change and press X to reject it.", "Rejected changes are reverted and reported to the agent."}
+			}
+			break
+		}
+		start, count := PanelListWindow(s.TrayIndex, len(pending), max(1, height-6))
+		for i := start; i < start+count; i++ {
+			style, marker := "", "  "
+			if i == s.TrayIndex {
+				style, marker = focusedBG+bold, "› "
+			}
+			line := safeText(pending[i].Describe())
+			if pending[i].Reason != "" {
+				line += muted + " · " + safeText(pending[i].Reason)
+			}
+			content = append(content, style+marker+line+reset)
+		}
+		content = append(content, "")
+		if s.RejectionStatus != "" {
+			content = append(content, cyan+safeText(s.RejectionStatus))
+		} else {
+			content = append(content, muted+"Applying at the next turn boundary.")
+		}
+		content = append(content, muted+"Reverting under a working agent makes it re-apply the change,",
+			muted+"so the queue waits until the agent is between turns.")
 	case s.Panel == "Context":
 		title = fmt.Sprintf("Context · %d attachments", len(s.Attachments))
 		footer = " Enter: preview · i: request · d: remove · b: paste · Esc: back"

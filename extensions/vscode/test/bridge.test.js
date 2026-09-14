@@ -90,3 +90,63 @@ test('writes session-bound editor requests atomically', async t => {
   repo.review.active = false;
   await assert.rejects(writeRequest(repo, { action: 'review', path: 'file.go', line: 1, endLine: 1 }), /not active/);
 });
+
+test('per-hunk review state parses, and older descriptors without it still work', () => {
+  const now = new Date().toISOString();
+  const base = { version: 1, session: 'review-session', sequence: 3, active: true,
+    updatedAt: now, unreviewedFiles: 2, unreviewedHunks: 4, newerBatches: 0 };
+  // An older Stvena omits every field added after version 1.
+  assert.deepEqual(parseReviewState(JSON.stringify(base)), base);
+
+  const hunk = { id: 'a'.repeat(64), start: 4, end: 9, reviewed: true };
+  const value = { ...base, features: ['review', 'accept', 'reject'], tree: '1'.repeat(40),
+    files: [{ path: 'a.go', status: 'M', reviewed: false, hunks: [hunk] }],
+    pendingRejections: { count: 2, appliesAt: 'turn-end', reason: 'claude 1 is running' },
+    lastRequest: { id: 'r1', action: 'reject', status: 'queued', at: now } };
+  assert.deepEqual(parseReviewState(JSON.stringify(value)), value);
+
+  for (const change of [
+    { features: 'reject' },
+    { files: [{ path: '../outside', status: 'M' }] },
+    { files: [{ path: 'a.go', status: 'Z' }] },
+    { files: [{ path: 'a.go', status: 'M', hunks: [{ ...hunk, id: 'short' }] }] },
+    { files: [{ path: 'a.go', status: 'M', hunks: [{ ...hunk, end: 1 }] }] },
+    { files: [{ path: 'a.go', status: 'M', hunks: [{ ...hunk, start: 0 }] }] },
+    { pendingRejections: { count: 1, appliesAt: 'whenever' } },
+    { pendingRejections: { count: -1, appliesAt: 'now' } },
+    { lastRequest: { id: 'r1', action: 'reject', status: 'maybe', at: now } },
+  ]) {
+    assert.throws(() => parseReviewState(JSON.stringify({ ...value, ...change })));
+  }
+});
+
+test('requests are gated on what the running Stvena advertises', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'stvena-features-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const repo = { requestPath: path.join(root, 'request.json') };
+  const live = { active: true, session: 's1', updatedAt: new Date().toISOString() };
+
+  // An older Stvena advertises no features: only the original actions are safe.
+  repo.review = { ...live };
+  await assert.rejects(() => writeRequest(repo, { action: 'reject', path: 'a.go', line: 1, endLine: 1 }),
+    /does not support/);
+  await writeRequest(repo, { action: 'review', path: 'a.go', line: 1, endLine: 1 });
+
+  repo.review = { ...live, features: ['review', 'context', 'reject', 'apply-rejections'] };
+  const rejection = await writeRequest(repo, { action: 'reject', path: 'a.go', line: 4, endLine: 9,
+    hunkId: 'b'.repeat(64), text: 'breaks the contract' });
+  assert.equal(rejection.hunkId, 'b'.repeat(64));
+  assert.equal(rejection.text, 'breaks the contract');
+
+  // Queue-wide actions carry no location.
+  const applied = await writeRequest(repo, { action: 'apply-rejections' });
+  assert.equal(applied.path, '');
+  assert.equal(applied.line, 0);
+
+  await assert.rejects(() => writeRequest(repo, { action: 'reject', path: 'a.go', line: 1, endLine: 1,
+    hunkId: 'nothex' }), /hunk reference/);
+  await assert.rejects(() => writeRequest(repo, { action: 'reject', path: 'a.go', line: 1, endLine: 1,
+    text: 'x'.repeat(4097) }), /too long/);
+  await assert.rejects(() => writeRequest(repo, { action: 'reject', path: '../escape', line: 1, endLine: 1 }),
+    /Invalid Stvena editor request/);
+});
