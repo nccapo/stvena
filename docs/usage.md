@@ -307,6 +307,64 @@ Commands have a 15-minute limit and a 1 MiB output limit. Quitting cancels the
 active check and removes its temporary checkout. No test command runs
 until you explicitly submit one.
 
+## Accept or reject what the agent wrote
+
+Accepting is the review mark you already use: **Space** for a file, **H** for a
+hunk. The change stays exactly as the agent wrote it and nothing is written.
+
+**X** rejects. With the patch focused it rejects the change block under the
+cursor; in the file browser, or when no hunk is under the cursor, it rejects the
+whole file. Rejecting a file the agent created asks for confirmation first,
+because applying it deletes that file. Reject from **This session (1)** or
+**Workspace (2)**; Project files and Branch changes are not reject sources.
+
+### The queue and the turn boundary
+
+A rejection is queued, not applied. Stvena does not own the agent's edits, so
+reverting while the agent is mid-turn makes it build on lines that no longer
+exist and often makes it re-apply the change. The queue waits until every live
+agent is between turns, detected with the same `Stop` hook that drives agent
+attention. Until then the review header shows `N rejected pending` and the tray
+explains what it is waiting for.
+
+An agent without hooks reports no turn boundary at all. Silence is not
+completion, so Stvena never applies the queue automatically for one; use
+**D → Enter**. With no agent running, rejections apply immediately.
+
+### The rejections tray
+
+**D** opens it. **↑/↓** select, **Enter** applies the queue now regardless of the
+turn boundary, **u** undoes the selected rejection, **b** resends a message that
+did not reach the agent, and **Esc** returns. Undo only works while a rejection
+is still queued; once applied, the agent has been told, so undoing it is a
+request you make in the agent.
+
+### What applying does
+
+Every queued rejection is reverse-applied as one `git apply`. Git verifies each
+context line and writes nothing unless all of them apply, so a batch never
+leaves the working tree half reverted. A hunk the agent changed again after you
+reviewed it is refused rather than force-applied: the change stays on disk and
+the message asks the agent to undo it. The index is reverted alongside the
+working tree when the same patch applies to both; otherwise the notice names
+each path whose staged copy still holds the change. Binary changes, conflicted
+files and incomplete patches are refused, as they are for staging.
+
+Rejected content is not lost. It remains in the captured snapshot refs that
+Stvena already retains, so it is recoverable with ordinary Git commands.
+
+### Telling the agent
+
+Stvena pastes a message describing what you rejected and what the working tree
+now contains, and **does not submit it** — the same rule as every other handoff.
+Read it and press Enter yourself. In standalone review the message is copied to
+the clipboard instead.
+
+**Actions → Auto-send rejections** (**W**) submits automatically. It is off by
+default and shared across projects. It still declines to submit when you have
+typed unsent input into the agent, because Stvena cannot read the CLI's input
+line and would otherwise send your half-written message too.
+
 ## Stage deliberately
 
 In **Workspace**, **S** stages/unstages the selected file and **A** stages/

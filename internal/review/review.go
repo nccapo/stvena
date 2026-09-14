@@ -89,6 +89,11 @@ type State struct {
 	AgentDraft                        bool
 	WelcomeFrame                      int
 	Hunks                             map[string]bool
+	Rejections                        []Rejection
+	RejectionStatus                   string
+	AutoSubmitRejections              bool
+	RejectionUndelivered              bool
+	SettingsDirty                     bool
 	History                           map[string]Record
 	Comments                          []Comment
 	Timeline                          []TimelineEntry

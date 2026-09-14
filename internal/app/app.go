@@ -430,6 +430,14 @@ func Run(args []string) error {
 					dirty = true
 				}
 			}
+			// Queued rejections wait here until every agent is between turns. A
+			// handoff left over from an explicit Apply now is flushed here too.
+			if state.applyRejections(false) || state.review.Request == "paste-rejections" {
+				if state.dispatch(ctx, events, stop) {
+					return nil
+				}
+				dirty = true
+			}
 			if ui.WelcomeVisible(&state.review) && time.Since(lastWelcomeFrame) >= 250*time.Millisecond {
 				state.review.WelcomeFrame = (state.review.WelcomeFrame + 1) % 6
 				lastWelcomeFrame = time.Now()
@@ -508,6 +516,9 @@ type screenState struct {
 	terminalPasteToAgent                            bool
 	terminalPasteMarker                             int
 	mouseDragging                                   bool
+	pendingRejectionDraft                           string
+	agentTyped                                      bool
+	pasteOverride                                   string
 	editorReview                                    *editor.ReviewPublisher
 	editorReviewReported                            bool
 }
@@ -538,6 +549,12 @@ func (s *screenState) handleLegacyInput(data []byte, child io.Writer) {
 	forward := make([]byte, 0, len(data))
 	defer func() {
 		if len(forward) > 0 {
+			// Stvena cannot see the CLI's input line. Remembering that the user
+			// typed into it is the only way to know an automatic submit would
+			// send more than the message Stvena pasted.
+			if s.agentInput != nil && child == s.agentInput {
+				s.agentTyped = true
+			}
 			_, _ = child.Write(forward)
 		}
 	}()

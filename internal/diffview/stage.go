@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -56,43 +57,73 @@ func Stage(root string, expected File, hunk int) error {
 	if expected.Binary {
 		return fmt.Errorf("binary staging is not yet supported; use your Git client")
 	}
-	lines := expected.Lines
+	var hunks []int
 	if hunk >= 0 {
-		if expected.Status != "M" || strings.Contains(strings.Join(expected.Lines, "\n"), "\nold mode ") {
-			return fmt.Errorf("stage added, deleted, renamed and mode changes as a whole file")
-		}
-		var starts []int
-		for i, line := range lines {
-			if strings.HasPrefix(line, "@@ ") {
-				starts = append(starts, i)
-			}
-		}
-		if hunk >= len(starts) {
-			return fmt.Errorf("select a hunk first")
-		}
-		end := len(lines)
-		if hunk+1 < len(starts) {
-			end = starts[hunk+1]
-		}
-		lines = append(append([]string{}, lines[:starts[0]]...), lines[starts[hunk]:end]...)
+		hunks = []int{hunk}
+	}
+	lines, err := selectHunks(expected, hunks, "stage")
+	if err != nil {
+		return err
 	}
 	patch := strings.Join(lines, "\n") + "\n"
 	return applyToIndex(root, patch, expected.Scope == Staged)
 }
+
+// selectHunks returns the patch lines for whole-file application, or the file
+// header followed by the requested hunks. Hunk indices are the positions of
+// "@@ " lines in the displayed patch, which is what the review UI counts.
+func selectHunks(f File, hunks []int, verb string) ([]string, error) {
+	if len(hunks) == 0 {
+		return f.Lines, nil
+	}
+	if f.Status != "M" || strings.Contains(strings.Join(f.Lines, "\n"), "\nold mode ") {
+		return nil, fmt.Errorf("%s added, deleted, renamed and mode changes as a whole file", verb)
+	}
+	var starts []int
+	for i, line := range f.Lines {
+		if strings.HasPrefix(line, "@@ ") {
+			starts = append(starts, i)
+		}
+	}
+	ordered := append([]int{}, hunks...)
+	sort.Ints(ordered)
+	lines := append([]string{}, f.Lines[:starts[0]]...)
+	previous := -1
+	for _, h := range ordered {
+		if h < 0 || h >= len(starts) {
+			return nil, fmt.Errorf("select a hunk first")
+		}
+		if h == previous {
+			continue
+		}
+		previous = h
+		end := len(f.Lines)
+		if h+1 < len(starts) {
+			end = starts[h+1]
+		}
+		lines = append(lines, f.Lines[starts[h]:end]...)
+	}
+	return lines, nil
+}
 func applyToIndex(root, patch string, reverse bool) error {
+	options := []string{"--cached"}
+	if reverse {
+		options = append(options, "--reverse")
+	}
+	return applyPatch(root, patch, options...)
+}
+
+func applyPatch(root, patch string, options ...string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	args := []string{"--literal-pathspecs", "-C", root, "apply", "--cached", "--whitespace=nowarn"}
-	if reverse {
-		args = append(args, "--reverse")
-	}
+	args := append([]string{"--literal-pathspecs", "-C", root, "apply", "--whitespace=nowarn"}, options...)
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.WaitDelay = 2 * time.Second
 	cmd.Stdin = strings.NewReader(patch)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("index unchanged: %s (%v)", strings.TrimSpace(string(out)), err)
+		return fmt.Errorf("%s (%v)", strings.TrimSpace(string(out)), err)
 	}
 	return nil
 }

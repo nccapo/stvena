@@ -188,10 +188,15 @@ func (s *screenState) setCheck(r checks.Result) {
 }
 func (s *screenState) dispatch(ctx context.Context, events chan<- any, stop <-chan struct{}) bool {
 	defer s.refreshAttention()
-	if s.review.HotkeysDirty {
+	if s.review.HotkeysDirty || s.review.SettingsDirty {
+		settingsOnly := !s.review.HotkeysDirty
 		s.relayout(s.layout.Width, s.layout.Height)
+		notice := s.review.Notice
 		if err := s.savePreferences(); err != nil {
-			s.review.Notice = "Hotkeys active, but could not save: " + err.Error()
+			s.review.Notice = "Setting active, but could not save: " + err.Error()
+		} else if settingsOnly {
+			// The toggle already explained itself; keep its message.
+			s.review.Notice = notice
 		} else {
 			s.review.Notice = "Hotkeys saved for all projects"
 		}
@@ -227,11 +232,31 @@ func (s *screenState) dispatch(ctx context.Context, events chan<- any, stop <-ch
 			defer s.workers.Done()
 			send("Checkpoint draft copied · paste and submit when ready · P: resume live", copyText(value))
 		}()
+	case "save-settings":
 	case "quit-app":
 		return true
 	case "paste-agent", "paste-context":
 		s.pasteToAgent(events, stop)
 		return false
+	case "paste-rejections":
+		if s.pendingRejectionDraft == "" {
+			break
+		}
+		if !s.exited && s.agentInput != nil && s.agentName != "" {
+			s.pasteOverride = s.pendingRejectionDraft
+			s.pasteToAgent(events, stop)
+			return false
+		}
+		// Standalone review and unsupported commands fall back to the clipboard.
+		// The working tree is already reverted; the agent still has to be told.
+		value := s.pendingRejectionDraft
+		s.pendingRejectionDraft = ""
+		s.review.RejectionUndelivered = false
+		s.workers.Add(1)
+		go func() {
+			defer s.workers.Done()
+			send("Rejections copied · paste them into your agent so it does not re-apply them", copyText(value))
+		}()
 	case "quit":
 		if !s.agentsRunning() {
 			return true
@@ -421,6 +446,25 @@ func (s *screenState) dispatch(ctx context.Context, events chan<- any, stop <-ch
 			case <-stop:
 			}
 		}()
+	case "reject":
+		f := s.review.Current()
+		if f == nil {
+			s.review.Notice = "Select a change to reject"
+			break
+		}
+		// Rejecting a file the agent created removes it from disk once applied.
+		// Every other rejection restores earlier content, so only this one asks.
+		if f.Scope == diffview.Untracked || f.Status == "A" {
+			s.review.ConfirmAction = "reject"
+			s.review.ConfirmDetail = fmt.Sprintf("Reject %s? The file is deleted when the agent finishes its turn.", f.Path)
+			break
+		}
+		s.rejectCurrent(false, "")
+	case "confirm:reject":
+		s.rejectCurrent(true, "")
+	case "apply-rejections":
+		s.applyRejections(true)
+		return false
 	case "stage-file", "stage-hunk":
 		f := s.review.Current()
 		if f == nil {

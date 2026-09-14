@@ -15,8 +15,11 @@ type preferences struct {
 	Hotkeys          map[string]string `json:",omitempty"` // Read older repository settings.
 }
 
+// hotkeyPreferences is the shared cross-project settings file. New fields are
+// additive so an older Stvena keeps reading it.
 type hotkeyPreferences struct {
-	Hotkeys map[string]string
+	Hotkeys              map[string]string
+	AutoSubmitRejections bool
 }
 
 var preferencesConfigDir = os.UserConfigDir
@@ -73,6 +76,7 @@ func (s *screenState) loadHotkeys(legacy map[string]string) {
 		return
 	}
 	s.review.Hotkeys = p.Hotkeys
+	s.review.AutoSubmitRejections = p.AutoSubmitRejections
 	// The first opened project with custom bindings seeds the shared settings.
 	// An existing shared file, including an explicit reset, always wins.
 	if os.IsNotExist(err) && len(legacy) > 0 {
@@ -84,7 +88,7 @@ func (s *screenState) loadHotkeys(legacy map[string]string) {
 }
 
 func (s *screenState) saveHotkeys() error {
-	if !s.review.HotkeysDirty {
+	if !s.review.HotkeysDirty && !s.review.SettingsDirty {
 		return nil
 	}
 	path, err := hotkeysPath()
@@ -94,10 +98,10 @@ func (s *screenState) saveHotkeys() error {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
-	if err := session.AtomicJSON(path, hotkeyPreferences{Hotkeys: s.review.Hotkeys}); err != nil {
+	if err := session.AtomicJSON(path, hotkeyPreferences{Hotkeys: s.review.Hotkeys, AutoSubmitRejections: s.review.AutoSubmitRejections}); err != nil {
 		return err
 	}
-	s.review.HotkeysDirty = false
+	s.review.HotkeysDirty, s.review.SettingsDirty = false, false
 	return nil
 }
 

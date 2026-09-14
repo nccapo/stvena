@@ -31,6 +31,7 @@ type Saved struct {
 	Comments        []Comment
 	LastCheck       string
 	Attachments     []Attachment
+	Rejections      []Rejection
 	ContextQuestion string
 }
 
@@ -54,7 +55,7 @@ func (s *State) Load(root string) error {
 	if err = json.Unmarshal(data, &saved); err != nil {
 		return fmt.Errorf("saved reviews could not be read: %w", err)
 	}
-	s.Attachments, s.ContextQuestion = saved.Attachments, saved.ContextQuestion
+	s.Attachments, s.ContextQuestion, s.Rejections = saved.Attachments, saved.ContextQuestion, saved.Rejections
 	s.reviewed, s.Hunks, s.History, s.Comments, s.LastCheck = saved.Reviewed, saved.Hunks, saved.History, saved.Comments, saved.LastCheck
 	if saved.Checkpoint != nil {
 		c := saved.Checkpoint
@@ -112,7 +113,7 @@ func (s *State) Save() error {
 			}
 		}
 	}
-	return session.AtomicJSON(s.savePath, Saved{Checkpoint: s.Checkpoint, Reviewed: s.reviewed, Hunks: s.Hunks, History: s.History, Comments: s.Comments, LastCheck: s.LastCheck, Attachments: s.Attachments, ContextQuestion: s.ContextQuestion})
+	return session.AtomicJSON(s.savePath, Saved{Checkpoint: s.Checkpoint, Reviewed: s.reviewed, Hunks: s.Hunks, History: s.History, Comments: s.Comments, LastCheck: s.LastCheck, Attachments: s.Attachments, ContextQuestion: s.ContextQuestion, Rejections: s.Rejections})
 }
 func (s *State) Remember(f diffview.File) {
 	if s.History == nil {

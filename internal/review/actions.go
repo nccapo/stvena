@@ -32,6 +32,9 @@ var Actions = []Action{
 	{" ", "Mark file reviewed", "Remember this version of the selected file"},
 	{"N", "Next unreviewed file", "Skip reviewed versions in the current file list"},
 	{"H", "Mark hunk reviewed", "Remember just the current change block"},
+	{"X", "Reject change", "Queue this hunk or file to be reverted and reported to the agent"},
+	{"D", "Rejections", "Inspect queued rejections, apply them now, or undo one"},
+	{"W", "Auto-send rejections", "Submit the rejection message instead of leaving it in the agent draft"},
 	{"V", "Select code range", "Move to extend selection; press V to clear"},
 	{"x", "Collect selected code", "Save a code slice in the context tray"},
 	{"B", "Context tray", "Collect files and failures, add a request, preview and paste"},
@@ -141,6 +144,9 @@ func (s *State) AdvancedKey(key string, visible int) bool {
 	if key == "Z" && s.Checkpoint != nil {
 		s.Panel = ""
 		s.FinishCheckpoint(false)
+		return true
+	}
+	if s.rejectionKey(key, visible) {
 		return true
 	}
 	if s.contextKey(key, visible) {
@@ -354,6 +360,21 @@ func (s *State) AdvancedKey(key string, visible int) bool {
 		s.Request = key
 	case "1", "2", "3", "4":
 		s.Request = key
+	case "X":
+		s.Request = "reject"
+	case "W":
+		s.AutoSubmitRejections = !s.AutoSubmitRejections
+		s.SettingsDirty = true
+		s.Request = "save-settings"
+		if s.AutoSubmitRejections {
+			s.Notice = "Rejection messages will be submitted automatically · W turns this off"
+		} else {
+			s.Notice = "Rejection messages wait in the agent draft · press Enter yourself"
+		}
+	case "D":
+		s.Panel = "Rejections"
+		s.TrayIndex = 0
+		s.PanelScroll = 0
 	case "S":
 		s.Request = "stage-file"
 	case "A":

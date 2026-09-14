@@ -92,6 +92,11 @@ func renderReview(s *review.State, width, height int, focused bool) []string {
 			source += fmt.Sprintf(" · %d changed again", changed)
 		}
 	}
+	rejected := ""
+	if pending := len(s.PendingRejections()); pending > 0 {
+		rejected = fmt.Sprintf(" · %d rejected pending (D)", pending)
+		source += rejected
+	}
 	if s.Checkpoint != nil {
 		freshness := "live unchanged"
 		if s.CheckpointNewer() {
@@ -100,7 +105,7 @@ func renderReview(s *review.State, width, height int, focused bool) []string {
 		if s.Latest.Tree == "" && !s.CheckpointNewer() {
 			freshness = "checking live…"
 		}
-		add(cyan + fmt.Sprintf(" Pinned · %s · %d comments · %d selections", freshness, len(s.CheckpointComments()), len(s.Attachments)))
+		add(cyan + fmt.Sprintf(" Pinned · %s · %d comments · %d selections", freshness, len(s.CheckpointComments()), len(s.Attachments)) + rejected)
 	} else if s.Source == "project" {
 		add(cyan + " " + source + filter)
 	} else {

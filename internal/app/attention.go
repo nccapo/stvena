@@ -44,6 +44,9 @@ func (s *screenState) applyAttention(e attentionEvent) {
 	}
 	before := e.agent.attention.Priority()
 	for _, event := range e.events {
+		if event.Kind == "Stop" || event.Kind == "UserPromptSubmit" {
+			s.agentTyped = false
+		}
 		e.agent.attention.Apply(event)
 		for _, change := range event.Changes {
 			if e.agent.attention.Files[change.Path].At.Equal(event.At) {

@@ -44,6 +44,10 @@ If Stvena saves you from the "open the IDE just for the diff" loop, consider
   enter Stvena's context tray.
 - **Keep track of your review.** Pin a captured version, mark files and hunks
   reviewed, and see when a reviewed change has changed again.
+- **Accept or reject what the agent wrote.** Accepting is the review mark you
+  already use. Rejecting queues the change, reverts exactly those lines when
+  the agent finishes its turn, and hands the agent a message saying what you
+  turned down so it does not write it again.
 - **Check the code you are looking at.** Run a command in a temporary checkout
   of a captured version, inspect logs, and jump from recognized failures to source.
 - **Stage deliberately.** Stage or unstage files and hunks with confirmation.
@@ -191,6 +195,7 @@ but direct selection paste is supported for Codex and Claude Code.
 | **P** | Pin the displayed version or resume live updates |
 | **K / Z** | Start Review checkpoint / finish and preview its draft |
 | **Space / N** | Mark file reviewed / next unreviewed file |
+| **X / D** | Reject the hunk or file / open the rejections tray |
 | **I / L** | Toggle review inbox / open observed session timeline |
 | **t / T** | Run a check / inspect results |
 | **a / ?** | Actions menu / keyboard help |
@@ -213,6 +218,45 @@ file, and **c** or **x** to save exact-line comments or selections across files.
 **b** pastes it into Codex/Claude Code without submitting, or copies it in
 standalone review. **P** resumes live; changed items need review again. An open
 checkpoint and its feedback survive reopening a saved review.
+
+## Accept and reject agent changes
+
+Marking a file or hunk reviewed (**Space** / **H**) is acceptance: the change
+stays exactly as the agent wrote it. **X** rejects instead. In the diff it
+rejects the change block under the cursor; in the file list it rejects the whole
+file. **D** opens the rejections tray, where **Enter** applies the queue now,
+**u** undoes a queued rejection, and **b** resends a message that did not reach
+the agent.
+
+Rejections are queued, not applied immediately. Stvena does not own the agent's
+edits — Codex and Claude write straight to disk — so reverting a file while the
+agent is still working makes its next edit build on lines that no longer exist,
+makes its tests fail for reasons it cannot see, and commonly makes it re-apply
+the change you just rejected. The queue therefore waits until every live agent
+is between turns, using the same `Stop` hook that drives agent attention. The
+review header shows `N rejected pending` while it waits.
+
+**Without hooks there is no turn boundary to wait for.** Three seconds of
+silence means only that nothing was printed, never that a turn ended, so Stvena
+never applies the queue on its own for an unhooked agent. Use **D → Enter** when
+you know it is safe. Standalone `stvena review`, with no agent running, applies
+rejections immediately.
+
+When the queue applies, every rejection is reverse-applied as a single
+`git apply`, which writes nothing unless all of it applies. A hunk the agent
+edited again after you reviewed it is **refused rather than force-applied**; the
+change stays in your working tree and the message tells the agent to undo it
+itself. Rejecting a file the agent created deletes it, so that one asks for
+confirmation first. A change that is also staged is reverted in the index as
+well when possible, and the notice names any path whose staged copy still holds
+it.
+
+Stvena then pastes a message into the agent describing what you rejected and
+what the working tree now contains — **without submitting it**, like every other
+handoff. Press Enter yourself after reading it. **Actions → Auto-send
+rejections** (**W**) submits automatically instead; it is off by default, is
+shared across projects, and still refuses to submit when you have unsent input
+in the agent, because Stvena cannot see the CLI's input line.
 
 ## Work with multiple agents
 
