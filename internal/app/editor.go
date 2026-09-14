@@ -78,7 +78,7 @@ func (s *screenState) findEditorHunk(request editor.Request) (diffview.File, int
 
 func (s *screenState) applyEditorRequest(request editor.Request) {
 	switch request.Action {
-	case "accept", "reject", "undo-reject":
+	case "accept", "unaccept", "reject", "undo-reject":
 		s.applyEditorDecision(request)
 		return
 	case "apply-rejections":
@@ -255,13 +255,18 @@ func (s *screenState) applyEditorDecision(request editor.Request) {
 		what = "hunk"
 	}
 	switch request.Action {
-	case "accept":
+	case "accept", "unaccept":
+		reviewed := request.Action == "accept"
 		if hunk >= 0 {
-			s.review.SetHunkReviewed(file, hunk, true)
+			s.review.SetHunkReviewed(file, hunk, reviewed)
 		} else {
-			s.review.SetFileReviewed(file, true)
+			s.review.SetFileReviewed(file, reviewed)
 		}
-		s.ack(request, "applied", fmt.Sprintf("Accepted %s in %s from the editor", what, request.Path))
+		verb := "Accepted"
+		if !reviewed {
+			verb = "Un-accepted"
+		}
+		s.ack(request, "applied", fmt.Sprintf("%s %s in %s from the editor", verb, what, request.Path))
 	case "reject":
 		start, end := request.Line, request.EndLine
 		if err := s.review.Reject(file, hunk, start, end, request.Text); err != nil {

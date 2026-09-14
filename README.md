@@ -38,6 +38,9 @@ If Stvena saves you from the "open the IDE just for the diff" loop, consider
 - **Run multiple agents at once.** Keep independent Codex and Claude Code
   terminals running, switch between them, and review their combined changes in
   one workspace.
+- **Accept or reject from your editor.** The Stvena Live extension puts ✓ Accept
+  and ✗ Reject above every change block in the ordinary working file, with
+  Explorer badges for what still needs review. Never a native diff tab.
 - **Follow saved edits in your editor.** The experimental Stvena Live extension
   lists captured activity and mirrors Stvena's current review range in the real
   source file—never a native IDE diff. Editor selections can open TUI review or

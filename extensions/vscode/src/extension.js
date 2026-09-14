@@ -4,6 +4,7 @@ const vscode = require('vscode');
 const path = require('node:path');
 const bridge = require('./bridge');
 const activity = require('./activity');
+const reviewUI = require('./review');
 
 function activate(context) {
   if (!vscode.workspace.isTrusted) return;
@@ -26,6 +27,11 @@ function activate(context) {
       return item;
     },
   } });
+  const decisions = reviewUI.createReviewUI(vscode, context, (target, request) => {
+    const repo = repos.find(candidate => candidate.root === target.root);
+    if (!repo) throw new Error('No active Stvena review owns this file.');
+    return bridge.writeRequest(repo, request);
+  });
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 10);
   status.command = 'stvena.toggleFollow';
   status.show();
@@ -42,12 +48,17 @@ function activate(context) {
     const live = new Set([...liveEdits, ...liveReviews]);
     const unreviewed = liveReviews.reduce((sum, repo) => sum + repo.review.unreviewedFiles, 0);
     const failed = liveEdits.some(repo => repo.state.error) || errors.size > 0;
-    const suffix = unreviewed ? ` · ${unreviewed} to review` : '';
+    const queued = decisions.pending(repos);
+    const suffix = (unreviewed ? ` · ${unreviewed} to review` : '') +
+      (queued ? ` · ${queued.count} rejected${queued.appliesAt === 'now' ? '' : ' pending'}` : '');
     status.text = `$(pulse) Stvena: ${!following ? 'Paused' : failed ? 'Waiting for capture' : live.size ? 'Following' : 'Waiting'}${suffix}`;
+    status.command = queued && queued.appliesAt !== 'now' ? 'stvena.applyRejections' : 'stvena.toggleFollow';
     const latestVisible = latest && rows.some(row => row.repo.root === latest.repo.root && row.kind === latest.kind &&
       row.file.path === latest.file.path && row.id === latest.id && row.at === latest.at) &&
       (latest.kind === 'review' || activity.fresh(latest.at));
-    status.tooltip = `${latestVisible ? `${activity.label(latest)} · ${latest.file.path}\n` : ''}Click to pause/resume following. Run stvena in the project terminal. Open Stvena Live output for connection errors.`;
+    status.tooltip = `${latestVisible ? `${activity.label(latest)} · ${latest.file.path}\n` : ''}` +
+      `${queued && queued.reason ? `${queued.reason}\nClick to apply rejections now.\n` : 'Click to pause/resume following.\n'}` +
+      'Run stvena in the project terminal. Open Stvena Live output for connection errors.';
     tree.message = failed ? 'Capture unavailable. See Stvena Live output.' :
       !live.size ? 'Waiting for stvena in this workspace.' :
       !following ? 'Following paused. Select any captured edit to inspect it.' :
@@ -103,6 +114,15 @@ function activate(context) {
     let endLine = selection.end.line + 1;
     if (!selection.isEmpty && selection.end.character === 0 && endLine > line) endLine--;
     return { repo, path: relative, line, endLine: Math.max(line, endLine) };
+  }
+
+  async function fileDecision(action) {
+    try {
+      const target = activeEditorTarget();
+      await decisions.decide(action, { root: target.repo.root, path: target.path, start: 1, end: 1 });
+    } catch (error) {
+      void vscode.window.showErrorMessage(`Stvena: ${error.message}`);
+    }
   }
 
   async function sendEditorRequest(action) {
@@ -189,6 +209,7 @@ function activate(context) {
         uri: vscode.Uri.file(path.join(row.repo.root, row.file.path)) })) : []);
       markers.refresh(row => rows.some(current => current.repo.root === row.repo.root &&
         current.kind === row.kind && current.file.path === row.file.path && current.at === row.at && current.id === row.id));
+      decisions.update(repos);
       changes.fire();
       updateStatus();
       if (following && follow) await show(follow, true);
@@ -203,6 +224,35 @@ function activate(context) {
     vscode.workspace.onDidChangeTextDocument(() => markers.refresh(() => true)),
     vscode.workspace.onDidChangeWorkspaceFolders(() => { discoveryAt = 0; }),
     vscode.commands.registerCommand('stvena.openChange', row => show(row)),
+    vscode.commands.registerCommand('stvena.acceptHunk', target => decisions.decide('accept', target)),
+    vscode.commands.registerCommand('stvena.unacceptHunk', target => decisions.decide('unaccept', target)),
+    vscode.commands.registerCommand('stvena.rejectHunk', target => decisions.decide('reject', target)),
+    vscode.commands.registerCommand('stvena.undoRejectHunk', target => decisions.decide('undo-reject', target)),
+    vscode.commands.registerCommand('stvena.rejectHunkWithReason', async target => {
+      const reason = await vscode.window.showInputBox({
+        title: 'Reject this change',
+        prompt: 'Why? This is sent to the agent so it does not write the same thing again.',
+        placeHolder: 'e.g. this breaks the existing session contract',
+      });
+      // An empty box still rejects; only Escape cancels.
+      if (reason === undefined) return;
+      await decisions.decide('reject', target, reason);
+    }),
+    vscode.commands.registerCommand('stvena.acceptFile', () => fileDecision('accept')),
+    vscode.commands.registerCommand('stvena.rejectFile', () => fileDecision('reject')),
+    vscode.commands.registerCommand('stvena.applyRejections', async () => {
+      const owner = repos.find(repo => repo.review?.pendingRejections?.count);
+      if (!owner) {
+        void vscode.window.showInformationMessage('Stvena: no rejections are waiting to be applied.');
+        return;
+      }
+      try {
+        await bridge.writeRequest(owner, { action: 'apply-rejections' });
+        void vscode.window.showInformationMessage('Stvena: applying rejected changes.');
+      } catch (error) {
+        void vscode.window.showErrorMessage(`Stvena: ${error.message}`);
+      }
+    }),
     vscode.commands.registerCommand('stvena.reviewInStvena', () => sendEditorRequest('review')),
     vscode.commands.registerCommand('stvena.addSelectionToContext', () => sendEditorRequest('context')),
     vscode.commands.registerCommand('stvena.showLatest', async () => {
@@ -221,7 +271,7 @@ function activate(context) {
         row.repo.root === latest?.repo.root && row.kind === latest?.kind && row.id === latest?.id &&
         row.file.path === latest?.file.path) || rows[0], true);
     }),
-    { dispose() { disposed = true; generation++; clearInterval(timer); } });
+    { dispose() { disposed = true; generation++; clearInterval(timer); decisions.clear(); } });
   void poll().catch(error => report('connection', error));
 }
 
