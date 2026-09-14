@@ -170,7 +170,15 @@ code /tmp/stvena-editor-project \
 The host smoke test writes only to that disposable workspace. It checks automatic
 source opening and line selection, reads without saved changes, TUI review focus,
 editor request descriptors, read expiry, pause/resume, addition/deletion handling,
-unsaved buffer preservation, and the absence of diff tabs. Use the editor's equivalent CLI to validate a VS Code
+unsaved buffer preservation, and the absence of diff tabs. It also covers the
+accept/reject surface: the actions above a change block, a decision appearing
+before Stvena confirms it, a refused decision rolling back, applying a queued
+rejection, actions disappearing on an unsaved buffer, and a request being
+withheld when the running Stvena does not advertise that action.
+
+On macOS the `code` wrapper detaches and returns before the tests finish. Run
+`/Applications/Visual Studio Code.app/Contents/MacOS/Code` with the same
+arguments to see the result and the exit status. Use the editor's equivalent CLI to validate a VS Code
 fork. Passing the protocol tests alone does not establish editor compatibility.
 
 On 2026-09-10, the original saved-edit smoke test passed in stock VS Code
@@ -178,6 +186,11 @@ On 2026-09-10, the original saved-edit smoke test passed in stock VS Code
 The expanded read/range/pause/expiry smoke test passed in Antigravity. Its
 activity inputs are protocol fixtures; live model-driven hook execution remains
 unverified. Other forks and remote editor hosts remain unverified.
+
+On 2026-09-14, the expanded suite including the accept/reject surface passed in
+stock VS Code 1.137.0 (Apple Silicon) against a source build of the extension.
+Antigravity was not re-verified for 0.3.0: its host blocked on an application
+auto-update before the tests ran.
 
 For v0.2.0-preview.1, the packaged Stvena Live 0.2.0 VSIX was extracted and tested
 in fresh, isolated VS Code and Antigravity profiles on macOS. Both passed the
