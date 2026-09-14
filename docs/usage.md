@@ -365,6 +365,21 @@ default and shared across projects. It still declines to submit when you have
 typed unsent input into the agent, because Stvena cannot read the CLI's input
 line and would otherwise send your half-written message too.
 
+## IDE mode
+
+**O** closes the review pane and gives the agent the whole terminal. Stvena
+offers it once the editor extension announces itself, and never switches it on
+by itself. **Ctrl-G** opens review across the full terminal and returns to the
+agent; **O** restores the split view. The choice is shared across projects.
+
+Detection requires the extension's heartbeat, not just the terminal environment:
+Cursor, Windsurf and other VS Code forks all report themselves as `vscode`, and
+the extension may not be installed in the one running Stvena. `STVENA_IDE` names
+an editor Stvena does not recognise.
+
+Notices normally appear in the review pane, so in IDE mode the header carries
+them instead, along with remaining review work and any pending rejections.
+
 ## Stage deliberately
 
 In **Workspace**, **S** stages/unstages the selected file and **A** stages/

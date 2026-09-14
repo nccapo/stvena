@@ -94,6 +94,9 @@ func (s *screenState) applyEditorRequest(request editor.Request) {
 		s.review.Key("N", s.visibleLines())
 		s.ack(request, "applied", "")
 		return
+	case "prompt":
+		s.applyEditorPrompt(request)
+		return
 	}
 	if request.Action == "context" {
 		if err := s.review.AddCapturedRange(s.projectView, request.Path, request.Line, request.EndLine); err != nil {
@@ -305,4 +308,50 @@ func (s *screenState) applyEditorDecision(request editor.Request) {
 	if err := s.review.Save(); err != nil {
 		s.ack(request, "refused", err.Error())
 	}
+}
+
+// applyEditorPrompt turns a question about a selection into an agent draft. The
+// source comes from Stvena's immutable capture rather than the editor's buffer,
+// so the agent is shown the same code Stvena reviewed. The draft is pasted and
+// never submitted: the user reads it and presses Enter.
+func (s *screenState) applyEditorPrompt(request editor.Request) {
+	if strings.TrimSpace(request.Text) == "" {
+		s.ack(request, "refused", "Ask a question to send with the selection")
+		return
+	}
+	code, err := s.review.CapturedRangeMessage(s.projectView, request.Path, request.Line, request.EndLine)
+	if err != nil {
+		s.ack(request, "refused", "Editor question: "+err.Error())
+		return
+	}
+	s.queueAgentDraft(code+"\n\n"+strings.TrimSpace(request.Text), "prompt")
+	s.ack(request, "applied",
+		fmt.Sprintf("Question about %s:%d–%d ready in the agent · press Enter to send",
+			request.Path, request.Line, request.EndLine))
+}
+
+// refreshIDE notices an editor extension connecting or disconnecting. IDE mode
+// is only ever offered, never switched on by Stvena: the layout is the user's.
+func (s *screenState) refreshIDE() bool {
+	if s.presencePath == "" {
+		return false
+	}
+	connected := editor.ReadPresence(s.presencePath)
+	if connected == s.connectedIDE {
+		return false
+	}
+	s.connectedIDE = connected
+	s.review.IDEDetected = connected != ""
+	if connected == "" {
+		// The editor is gone; keep IDE mode if the user chose it, but say so.
+		if s.review.IDEMode {
+			s.review.Notice = "Editor disconnected · " + s.review.Binding("Switch panes") + " opens review · O: leave IDE mode"
+		}
+		return true
+	}
+	if !s.ideOffered && !s.review.IDEMode {
+		s.ideOffered = true
+		s.review.Notice = connected + " connected · accept and reject in your editor · O: give the agent the whole terminal"
+	}
+	return true
 }

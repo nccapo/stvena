@@ -35,6 +35,7 @@ var Actions = []Action{
 	{"X", "Reject change", "Queue this hunk or file to be reverted and reported to the agent"},
 	{"D", "Rejections", "Inspect queued rejections, apply them now, or undo one"},
 	{"W", "Auto-send rejections", "Submit the rejection message instead of leaving it in the agent draft"},
+	{"O", "IDE mode", "Give the agent the whole terminal and review in your connected editor"},
 	{"V", "Select code range", "Move to extend selection; press V to clear"},
 	{"x", "Collect selected code", "Save a code slice in the context tray"},
 	{"B", "Context tray", "Collect files and failures, add a request, preview and paste"},
@@ -362,6 +363,18 @@ func (s *State) AdvancedKey(key string, visible int) bool {
 		s.Request = key
 	case "X":
 		s.Request = "reject"
+	case "O":
+		s.IDEMode = !s.IDEMode
+		s.SettingsDirty = true
+		s.Request = "ide-mode"
+		if s.IDEMode {
+			s.Notice = "IDE mode · the agent has the whole terminal · " + s.Binding("Switch panes") + " opens review"
+			if !s.IDEDetected {
+				s.Notice = "IDE mode · no editor extension is connected · O returns to the split view"
+			}
+		} else {
+			s.Notice = "Split view restored"
+		}
 	case "W":
 		s.AutoSubmitRejections = !s.AutoSubmitRejections
 		s.SettingsDirty = true

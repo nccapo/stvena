@@ -285,7 +285,7 @@ func (s *State) rejectionKey(key string, visible int) bool {
 			s.Notice = "No rejection message is waiting to be sent"
 			break
 		}
-		s.Request = "paste-rejections"
+		s.Request = "paste-draft"
 	case "enter":
 		if len(pending) == 0 {
 			s.Notice = "No pending rejections"

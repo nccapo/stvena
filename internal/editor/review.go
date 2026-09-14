@@ -100,7 +100,7 @@ type ReviewUpdate struct {
 }
 
 // Features lists the request actions this build accepts.
-var Features = []string{"review", "context", "accept", "unaccept", "reject", "undo-reject", "apply-rejections", "next-unreviewed"}
+var Features = []string{"review", "context", "accept", "unaccept", "reject", "undo-reject", "apply-rejections", "next-unreviewed", "prompt"}
 
 // Protocol limits. A very large change set is reported truncated rather than
 // written in full: the descriptor is polled, not streamed.

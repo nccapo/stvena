@@ -20,6 +20,7 @@ type preferences struct {
 type hotkeyPreferences struct {
 	Hotkeys              map[string]string
 	AutoSubmitRejections bool
+	IDEMode              bool
 }
 
 var preferencesConfigDir = os.UserConfigDir
@@ -77,6 +78,7 @@ func (s *screenState) loadHotkeys(legacy map[string]string) {
 	}
 	s.review.Hotkeys = p.Hotkeys
 	s.review.AutoSubmitRejections = p.AutoSubmitRejections
+	s.review.IDEMode = p.IDEMode
 	// The first opened project with custom bindings seeds the shared settings.
 	// An existing shared file, including an explicit reset, always wins.
 	if os.IsNotExist(err) && len(legacy) > 0 {
@@ -98,7 +100,7 @@ func (s *screenState) saveHotkeys() error {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
-	if err := session.AtomicJSON(path, hotkeyPreferences{Hotkeys: s.review.Hotkeys, AutoSubmitRejections: s.review.AutoSubmitRejections}); err != nil {
+	if err := session.AtomicJSON(path, hotkeyPreferences{Hotkeys: s.review.Hotkeys, AutoSubmitRejections: s.review.AutoSubmitRejections, IDEMode: s.review.IDEMode}); err != nil {
 		return err
 	}
 	s.review.HotkeysDirty, s.review.SettingsDirty = false, false

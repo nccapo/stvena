@@ -80,9 +80,7 @@ func (s *screenState) applyRejections(force bool) bool {
 		s.review.Notice = saveErr.Error()
 	}
 	if draft != "" {
-		s.pendingRejectionDraft = draft
-		s.review.RejectionUndelivered = true
-		s.review.Request = "paste-rejections"
+		s.queueAgentDraft(draft, "rejections")
 	}
 	return true
 }
@@ -123,4 +121,12 @@ func (s *screenState) rejectCurrent(wholeFile bool, reason string) {
 		return
 	}
 	s.review.Notice = fmt.Sprintf("Rejected %s · %d pending · applying", what, queued)
+}
+
+// queueAgentDraft holds an assembled message for delivery to the agent. It is
+// pasted, never submitted, so the user reads it before anything is sent.
+func (s *screenState) queueAgentDraft(text, kind string) {
+	s.pendingDraft, s.pendingDraftKind = text, kind
+	s.review.RejectionUndelivered = kind == "rejections"
+	s.review.Request = "paste-draft"
 }

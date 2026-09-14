@@ -13,6 +13,10 @@
 - Gate the new actions on what the running Stvena advertises, so an older binary
   keeps the 0.2.x behaviour instead of failing.
 - Add `stvena.showCodeLens` to keep the tinting without the buttons.
+- Ask the agent about a selection with Cmd-K Cmd-A: the question and the
+  captured code go into the agent's input, unsubmitted.
+- Announce the editor to Stvena so it can offer IDE mode, where the agent gets
+  the whole integrated terminal and review happens here.
 
 ## 0.2.2
 

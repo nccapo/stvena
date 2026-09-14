@@ -80,7 +80,13 @@ func (s *screenState) switchPane() {
 	if s.exited {
 		s.diffFocused = true
 	}
-	if !s.diffFocused && s.fullscreen {
+	// IDE mode has no review pane to switch into, so switching opens review over
+	// the whole terminal and switching back returns it to the agent.
+	if s.review.IDEMode {
+		s.fullscreen = s.diffFocused
+		s.relayout(s.layout.Width, s.layout.Height)
+		s.resizeAgents()
+	} else if !s.diffFocused && s.fullscreen {
 		s.fullscreen = false
 		s.relayout(s.layout.Width, s.layout.Height)
 	}

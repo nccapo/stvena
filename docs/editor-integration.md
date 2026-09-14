@@ -132,6 +132,22 @@ carry no location.
 | `undo-reject` | Removes a queued rejection |
 | `apply-rejections` | Applies the queue now, overriding the turn-boundary wait |
 | `next-unreviewed` | Moves the TUI to the next unreviewed file |
+| `prompt` | Places `text` and the captured range in the agent's input, unsubmitted |
+
+`prompt` reads the range from Stvena's immutable capture, never from editor
+text, and the draft is pasted rather than submitted: the user reads it and
+presses Enter.
+
+## Editor presence
+
+An extension announces itself by atomically replacing `stvena-ide.json` in the
+resolved Git directory with `version` 1, an `ide` name, its `extension` version,
+and an RFC 3339 `updatedAt` it refreshes at least every 30 seconds. Stvena
+offers IDE mode only while that heartbeat is current: several editors report
+`TERM_PROGRAM=vscode` and the extension may not be installed in the one running
+Stvena, so the environment alone is not evidence of a connection. A missing,
+malformed or stale descriptor simply means no editor is watching. The `ide` name
+reaches the terminal UI, so Stvena strips control characters and truncates it.
 
 A rejection is queued, not applied. Stvena reverts it only when every live agent
 is between turns, because reverting under a working agent makes it re-apply the

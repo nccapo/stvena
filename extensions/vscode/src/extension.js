@@ -162,7 +162,15 @@ function activate(context) {
       for (const repo of repos) {
         const reviewErrorKey = `${repo.root} review`;
         try {
-          repo.state = await bridge.readState(repo);
+          try {
+          // Tell Stvena an extension is connected, so it can offer IDE mode.
+          await bridge.announce(repo, vscode.env.appName || 'VS Code',
+            vscode.extensions.getExtension('nccapo.stvena-live')?.packageJSON?.version || '');
+          errors.delete(`${repo.root} presence`);
+        } catch (error) {
+          report(`${repo.root} presence`, error);
+        }
+        repo.state = await bridge.readState(repo);
           if (!repo.state?.error) errors.delete(repo.root);
         } catch (error) {
           repo.state = undefined;
@@ -237,6 +245,29 @@ function activate(context) {
       // An empty box still rejects; only Escape cancels.
       if (reason === undefined) return;
       await decisions.decide('reject', target, reason);
+    }),
+    vscode.commands.registerCommand('stvena.askAgent', async () => {
+      let target;
+      try {
+        target = activeEditorTarget();
+      } catch (error) {
+        void vscode.window.showErrorMessage(`Stvena: ${error.message}`);
+        return;
+      }
+      const range = target.line === target.endLine ? `line ${target.line}` : `lines ${target.line}–${target.endLine}`;
+      const question = await vscode.window.showInputBox({
+        title: `Ask about ${path.basename(target.path)} ${range}`,
+        prompt: 'Your question is placed in the agent\'s input with the selected code. You press Enter to send it.',
+        placeHolder: 'e.g. why does this need a lock?',
+      });
+      if (!question || !question.trim()) return;
+      try {
+        await bridge.writeRequest(target.repo, { action: 'prompt', path: target.path,
+          line: target.line, endLine: target.endLine, text: question });
+        void vscode.window.showInformationMessage('Stvena: question ready in the agent · press Enter there to send it.');
+      } catch (error) {
+        void vscode.window.showErrorMessage(`Stvena: ${error.message}`);
+      }
     }),
     vscode.commands.registerCommand('stvena.acceptFile', () => fileDecision('accept')),
     vscode.commands.registerCommand('stvena.rejectFile', () => fileDecision('reject')),

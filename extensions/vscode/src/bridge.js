@@ -19,7 +19,29 @@ async function discover(folder) {
   const root = (await git(folder, 'rev-parse', '--show-toplevel')).toString().replace(/\n$/, '');
   const gitDir = (await git(root, 'rev-parse', '--absolute-git-dir')).toString().replace(/\n$/, '');
   return { root, statePath: path.join(gitDir, 'stvena-live.json'),
-    reviewPath: path.join(gitDir, 'stvena-review.json'), requestPath: path.join(gitDir, 'stvena-request.json') };
+    reviewPath: path.join(gitDir, 'stvena-review.json'), requestPath: path.join(gitDir, 'stvena-request.json'),
+    presencePath: path.join(gitDir, 'stvena-ide.json') };
+}
+
+// announce tells Stvena an editor extension is actually watching this
+// repository. Several editors report themselves as VS Code to the terminal, and
+// the extension may not be installed in the one that is running, so Stvena
+// waits for this rather than trusting the environment.
+async function announce(repo, ide, extension) {
+  const value = { version: 1, ide, extension, updatedAt: new Date().toISOString() };
+  await writeAtomically(repo.presencePath, value);
+  return value;
+}
+
+async function writeAtomically(target, value) {
+  const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    await fs.writeFile(temporary, `${JSON.stringify(value)}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+    await fs.rename(temporary, target);
+  } catch (error) {
+    await fs.rm(temporary, { force: true }).catch(() => {});
+    throw error;
+  }
 }
 
 function validPath(value) {
@@ -186,14 +208,7 @@ async function writeRequest(repo, request) {
     endLine: located ? request.endLine : 0, updatedAt: new Date().toISOString() };
   if (request.hunkId !== undefined) value.hunkId = request.hunkId;
   if (request.text) value.text = request.text;
-  const temporary = `${repo.requestPath}.${process.pid}.${randomUUID()}.tmp`;
-  try {
-    await fs.writeFile(temporary, `${JSON.stringify(value)}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
-    await fs.rename(temporary, repo.requestPath);
-  } catch (error) {
-    await fs.rm(temporary, { force: true }).catch(() => {});
-    throw error;
-  }
+  await writeAtomically(repo.requestPath, value);
   return value;
 }
 
@@ -205,4 +220,4 @@ async function readBlob(root, oid) {
   return data.toString('utf8');
 }
 
-module.exports = { discover, readState, parseState, readReviewState, parseReviewState, isLive, supports, writeRequest, readBlob };
+module.exports = { discover, readState, parseState, readReviewState, parseReviewState, isLive, supports, writeRequest, announce, readBlob };

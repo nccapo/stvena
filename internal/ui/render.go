@@ -54,6 +54,15 @@ func NewLayoutOptions(width, height, ratio int, fullscreen bool, state ...*revie
 		l.DiffHeight = contentHeight
 		return l
 	}
+	// In IDE mode the whole content area goes to the agent. An editor's
+	// integrated terminal is short, and splitting it again costs more than the
+	// review pane is worth while the editor itself is showing the review.
+	if len(state) > 0 && state[0] != nil && state[0].IDEMode {
+		l.LeftWidth = width
+		l.LeftHeight = contentHeight
+		l.DiffY = l.FooterY
+		return l
+	}
 	if width >= 100 {
 		l.LeftWidth = max(40, width*min(75, max(25, ratio))/100)
 		l.LeftHeight = contentHeight
@@ -96,6 +105,19 @@ func Render(w io.Writer, terminal *vt.Emulator, state *review.State, layout Layo
 	if len(state.Attachments) > 0 {
 		header += cyan + fmt.Sprintf(" · Context: %d (B)", len(state.Attachments)) + reset
 	}
+	// IDE mode removes the review pane, and notices live inside it. Without this
+	// every message -- queued rejections, refusals, errors -- would be invisible.
+	if layout.DiffHeight == 0 && !layout.Vertical {
+		if files, hunks := state.ReviewCounts(state.Snapshot); files > 0 {
+			header += yellow + fmt.Sprintf(" · %df/%dh to review", files, hunks) + reset
+		}
+		if pending := len(state.PendingRejections()); pending > 0 {
+			header += red + fmt.Sprintf(" · %d rejected pending", pending) + reset
+		}
+		if state.Notice != "" {
+			header += cyan + " · " + safeText(state.Notice) + reset
+		}
+	}
 	if state.CheckStatus != "" {
 		header += muted + " · Checks: " + safeText(state.CheckStatus)
 		if state.CheckTree != state.Latest.Tree {
@@ -121,7 +143,7 @@ func Render(w io.Writer, terminal *vt.Emulator, state *review.State, layout Layo
 		if separatorY >= 0 && separatorY < layout.FooterY {
 			rows[separatorY] = muted + strings.Repeat("─", layout.Width) + reset
 		}
-	} else if layout.LeftWidth > 0 {
+	} else if layout.LeftWidth > 0 && layout.LeftWidth < layout.Width {
 		for y := layout.LeftY; y < layout.FooterY; y++ {
 			rows[y] = overlay(rows[y], layout.LeftWidth, muted+"│"+reset, layout.Width)
 		}

@@ -165,6 +165,12 @@ func Run(args []string) error {
 	stopEvents := sync.OnceFunc(func() { close(stop) })
 	defer stopEvents()
 	state := screenState{layout: layout, session: savedSession, root: root, exited: standalone, ratio: 58, agentInput: io.Discard, editorReview: editorReview}
+	state.terminalIDE = editor.TerminalName(os.Getenv)
+	if savedSession != nil {
+		if path, err := editor.PresencePath(savedSession); err == nil {
+			state.presencePath = path
+		}
+	}
 	defer state.closeAgents()
 	if !standalone {
 		state.launchCommand = append([]string(nil), args...)
@@ -425,6 +431,9 @@ func Run(args []string) error {
 			if state.publishEditorReview() {
 				dirty = true
 			}
+			if state.refreshIDE() {
+				dirty = true
+			}
 			for _, a := range state.agents {
 				if a.attention.Quiet(time.Now()) {
 					dirty = true
@@ -432,7 +441,7 @@ func Run(args []string) error {
 			}
 			// Queued rejections wait here until every agent is between turns. A
 			// handoff left over from an explicit Apply now is flushed here too.
-			if state.applyRejections(false) || state.review.Request == "paste-rejections" {
+			if state.applyRejections(false) || state.review.Request == "paste-draft" {
 				if state.dispatch(ctx, events, stop) {
 					return nil
 				}
@@ -516,7 +525,9 @@ type screenState struct {
 	terminalPasteToAgent                            bool
 	terminalPasteMarker                             int
 	mouseDragging                                   bool
-	pendingRejectionDraft                           string
+	pendingDraft, pendingDraftKind                  string
+	terminalIDE, presencePath, connectedIDE         string
+	ideOffered                                      bool
 	agentTyped                                      bool
 	lastEditorRequest                               *editor.RequestResult
 	pasteOverride                                   string

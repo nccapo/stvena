@@ -199,6 +199,7 @@ but direct selection paste is supported for Codex and Claude Code.
 | **K / Z** | Start Review checkpoint / finish and preview its draft |
 | **Space / N** | Mark file reviewed / next unreviewed file |
 | **X / D** | Reject the hunk or file / open the rejections tray |
+| **O** | IDE mode: give the agent the whole terminal |
 | **I / L** | Toggle review inbox / open observed session timeline |
 | **t / T** | Run a check / inspect results |
 | **a / ?** | Actions menu / keyboard help |
@@ -260,6 +261,32 @@ handoff. Press Enter yourself after reading it. **Actions → Auto-send
 rejections** (**W**) submits automatically instead; it is off by default, is
 shared across projects, and still refuses to submit when you have unsent input
 in the agent, because Stvena cannot see the CLI's input line.
+
+## IDE mode
+
+When the Stvena Live extension connects, Stvena offers **IDE mode** (**O**). The
+review pane closes and the agent gets the whole terminal — which is the point in
+an editor's integrated terminal, where splitting an already short pane again
+costs more than the review pane is worth while the editor is showing the same
+review. **Ctrl-G** still opens review over the full terminal, and **O** returns
+to the split view. The setting is shared across projects.
+
+Stvena never switches IDE mode on by itself. It waits for the extension's own
+heartbeat rather than trusting the terminal environment, because Cursor,
+Windsurf and other forks all identify themselves as VS Code and the extension
+may not be installed in the one that is running. Set `STVENA_IDE` to name an
+editor Stvena does not recognise.
+
+In IDE mode the header carries what the review pane would have shown: remaining
+review work, pending rejections, and the current notice.
+
+## Ask the agent about a selection
+
+Select code in the editor and press **Cmd-K Cmd-A** (**Ctrl-K Ctrl-A** on Linux),
+or use **Stvena: Ask the Agent About This Selection**. Type your question and
+Stvena places it in the agent's input together with the selected code, taken
+from its own capture rather than the editor's buffer. As with every other
+handoff, **Stvena does not press Enter** — read the draft and send it yourself.
 
 ## Work with multiple agents
 

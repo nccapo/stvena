@@ -13,6 +13,7 @@ import (
 	"github.com/nccapo/stvena/internal/diffview"
 	"github.com/nccapo/stvena/internal/editor"
 	"github.com/nccapo/stvena/internal/review"
+	"github.com/nccapo/stvena/internal/session"
 )
 
 func rejectGit(t *testing.T, root string, args ...string) {
@@ -92,11 +93,11 @@ func TestRejectionsWaitForTheAgentToFinishItsTurn(t *testing.T) {
 	if len(s.review.PendingRejections()) != 0 {
 		t.Fatal("queue not cleared after applying")
 	}
-	if !strings.Contains(s.pendingRejectionDraft, "not what I asked for") ||
-		!strings.Contains(s.pendingRejectionDraft, "Do not re-apply") {
-		t.Fatalf("agent was not told what was rejected:\n%s", s.pendingRejectionDraft)
+	if !strings.Contains(s.pendingDraft, "not what I asked for") ||
+		!strings.Contains(s.pendingDraft, "Do not re-apply") {
+		t.Fatalf("agent was not told what was rejected:\n%s", s.pendingDraft)
 	}
-	if s.review.Request != "paste-rejections" {
+	if s.review.Request != "paste-draft" {
 		t.Fatalf("handoff not requested, got %q", s.review.Request)
 	}
 }
@@ -174,9 +175,9 @@ func TestRejectionStillReachesTheAgentWhenTheRevertFails(t *testing.T) {
 	if !strings.Contains(string(got), "AGENT AGAIN") {
 		t.Fatalf("force-applied a stale patch: %s", got)
 	}
-	if !strings.Contains(s.pendingRejectionDraft, "still in the working tree") ||
-		!strings.Contains(s.pendingRejectionDraft, "wrong approach") {
-		t.Fatalf("failed revert was not reported to the agent:\n%s", s.pendingRejectionDraft)
+	if !strings.Contains(s.pendingDraft, "still in the working tree") ||
+		!strings.Contains(s.pendingDraft, "wrong approach") {
+		t.Fatalf("failed revert was not reported to the agent:\n%s", s.pendingDraft)
 	}
 	if len(s.review.PendingRejections()) != 0 {
 		t.Fatal("failed batch left the queue pending")
@@ -232,21 +233,23 @@ func TestAutoSubmitOnlyWhenTheUserHasNotTyped(t *testing.T) {
 	s.review.AgentDraft = false
 
 	// Default: the message waits in the draft for the user to send.
-	s.pendingRejectionDraft = "rejection message"
-	s.pasteOverride = s.pendingRejectionDraft
+	s.pendingDraft = "rejection message"
+	s.pasteOverride = s.pendingDraft
+	s.pendingDraftKind = "rejections"
 	s.finishAgentPaste(nil)
 	if !strings.Contains(s.review.Notice, "press Enter") {
 		t.Fatalf("default did not leave the draft to the user: %q", s.review.Notice)
 	}
-	if s.pendingRejectionDraft != "" {
+	if s.pendingDraft != "" {
 		t.Fatal("delivered draft stayed queued")
 	}
 
 	// Opted in, with unsent user input: submitting would send that too.
 	s.review.AutoSubmitRejections = true
 	s.agentTyped = true
-	s.pendingRejectionDraft = "rejection message"
-	s.pasteOverride = s.pendingRejectionDraft
+	s.pendingDraft = "rejection message"
+	s.pasteOverride = s.pendingDraft
+	s.pendingDraftKind = "rejections"
 	s.finishAgentPaste(nil)
 	if !strings.Contains(s.review.Notice, "unsent input") {
 		t.Fatalf("submitted over the user's own input: %q", s.review.Notice)
@@ -254,8 +257,9 @@ func TestAutoSubmitOnlyWhenTheUserHasNotTyped(t *testing.T) {
 
 	// Opted in on a clean prompt: Stvena submits.
 	s.agentTyped = false
-	s.pendingRejectionDraft = "rejection message"
-	s.pasteOverride = s.pendingRejectionDraft
+	s.pendingDraft = "rejection message"
+	s.pasteOverride = s.pendingDraft
+	s.pendingDraftKind = "rejections"
 	s.finishAgentPaste(nil)
 	if !strings.Contains(s.review.Notice, "Rejections sent") {
 		t.Fatalf("auto-submit did not run: %q", s.review.Notice)
@@ -268,10 +272,11 @@ func TestAutoSubmitOnlyWhenTheUserHasNotTyped(t *testing.T) {
 func TestFailedHandoffKeepsTheRejectionDraftForResending(t *testing.T) {
 	s := terminalState(t)
 	s.agentName = "codex"
-	s.pendingRejectionDraft = "rejection message"
-	s.pasteOverride = s.pendingRejectionDraft
+	s.pendingDraft = "rejection message"
+	s.pasteOverride = s.pendingDraft
+	s.pendingDraftKind = "rejections"
 	s.finishAgentPaste(errShortWrite{})
-	if s.pendingRejectionDraft == "" {
+	if s.pendingDraft == "" {
 		t.Fatal("draft lost after a failed handoff; the agent would never be told")
 	}
 	if !strings.Contains(s.review.Notice, "resends") {
@@ -280,7 +285,7 @@ func TestFailedHandoffKeepsTheRejectionDraftForResending(t *testing.T) {
 	s.review.Panel = "Rejections"
 	s.review.RejectionUndelivered = true
 	s.review.AdvancedKey("b", 10)
-	if s.review.Request != "paste-rejections" {
+	if s.review.Request != "paste-draft" {
 		t.Fatalf("tray did not offer a resend, request=%q", s.review.Request)
 	}
 }
@@ -493,5 +498,59 @@ func TestPublishedReviewFilesCarryHunkStateAndPendingWait(t *testing.T) {
 	live.activeAgent().attention.Hooked = false
 	if pending = live.pendingRejectionState(); pending == nil || pending.AppliesAt != "manual" {
 		t.Fatalf("unhooked agent should need a manual apply: %+v", pending)
+	}
+}
+
+func TestEditorPromptBuildsAnAgentDraftFromCapturedSource(t *testing.T) {
+	root := t.TempDir()
+	rejectGit(t, root, "init")
+	if err := os.WriteFile(filepath.Join(root, "f.go"), []byte("package main\n\nfunc greet() {}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	rejectGit(t, root, "add", ".")
+	rejectGit(t, root, "commit", "-m", "initial")
+	saved, err := session.Open(root, false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer saved.Close()
+	tree, err := saved.Capture()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &screenState{root: root}
+	s.projectView = diffview.Project(root, tree)
+
+	request := editorRequest("prompt", "f.go", "")
+	request.Line, request.EndLine = 3, 3
+	request.Text = "  why is this exported?  "
+	s.applyEditorRequest(request)
+
+	if s.lastEditorRequest == nil || s.lastEditorRequest.Status != "applied" {
+		t.Fatalf("prompt not acknowledged: %+v", s.lastEditorRequest)
+	}
+	if s.pendingDraftKind != "prompt" {
+		t.Fatalf("draft queued as %q", s.pendingDraftKind)
+	}
+	// The captured source travels with the question, and the question is trimmed.
+	if !strings.Contains(s.pendingDraft, "func greet()") {
+		t.Fatalf("captured source missing from the draft:\n%s", s.pendingDraft)
+	}
+	if !strings.HasSuffix(s.pendingDraft, "why is this exported?") {
+		t.Fatalf("question missing or untrimmed:\n%s", s.pendingDraft)
+	}
+	if s.review.Request != "paste-draft" {
+		t.Fatalf("handoff not requested, got %q", s.review.Request)
+	}
+	// A rejection resend must not be offered for a question.
+	if s.review.RejectionUndelivered {
+		t.Fatal("a question was tracked as an undelivered rejection")
+	}
+
+	empty := editorRequest("prompt", "f.go", "")
+	empty.Line, empty.EndLine = 3, 3
+	s.applyEditorRequest(empty)
+	if s.lastEditorRequest.Status != "refused" {
+		t.Fatalf("empty question accepted: %+v", s.lastEditorRequest)
 	}
 }

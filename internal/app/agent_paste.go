@@ -83,7 +83,8 @@ func (s *screenState) pasteToAgent(events chan<- any, stop <-chan struct{}) {
 }
 func (s *screenState) finishAgentPaste(err error) {
 	s.pastePending = false
-	rejection := s.pasteOverride != "" && s.pasteOverride == s.pendingRejectionDraft
+	draft := s.pasteOverride != "" && s.pasteOverride == s.pendingDraft
+	rejection := draft && s.pendingDraftKind == "rejections"
 	s.pasteOverride = ""
 	if err != nil {
 		s.pasteInput = nil
@@ -93,11 +94,15 @@ func (s *screenState) finishAgentPaste(err error) {
 			s.review.Notice = fmt.Sprintf("Rejections reverted, but the message did not reach the agent: %v · D → b resends", err)
 			return
 		}
+		if draft {
+			s.pendingDraft, s.pendingDraftKind = "", ""
+		}
 		s.review.Notice = fmt.Sprintf("Paste may be incomplete: %v · inspect the agent before retrying", err)
 		return
 	}
-	if rejection {
-		s.pendingRejectionDraft = ""
+	kind := s.pendingDraftKind
+	if draft {
+		s.pendingDraft, s.pendingDraftKind = "", ""
 		s.review.RejectionUndelivered = false
 	}
 	if s.exited {
@@ -105,11 +110,15 @@ func (s *screenState) finishAgentPaste(err error) {
 		s.review.Notice = "Agent exited during handoff; delivery was not confirmed"
 		return
 	}
-	if rejection {
+	if draft {
 		s.review.AgentDraft = true
 		s.diffFocused = false
 		s.fullscreen = false
 		s.relayout(s.layout.Width, s.layout.Height)
+		if kind == "prompt" {
+			s.review.Notice = "Question pasted · review it in the agent, then press Enter"
+			return
+		}
 		switch {
 		case !s.review.AutoSubmitRejections:
 			s.review.Notice = "Rejections pasted · review the message in the agent, then press Enter"

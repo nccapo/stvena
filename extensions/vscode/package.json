@@ -92,6 +92,10 @@
         "command": "stvena.applyRejections",
         "title": "Stvena: Apply Rejected Changes Now",
         "icon": "$(check-all)"
+      },
+      {
+        "command": "stvena.askAgent",
+        "title": "Stvena: Ask the Agent About This Selection"
       }
     ],
     "views": {
@@ -127,6 +131,10 @@
         }
       ],
       "editor/context": [
+        {
+          "command": "stvena.askAgent",
+          "group": "stvena@0"
+        },
         {
           "command": "stvena.reviewInStvena",
           "group": "stvena@1"
@@ -236,7 +244,15 @@
           "description": "Show Accept and Reject actions above each agent change block."
         }
       }
-    }
+    },
+    "keybindings": [
+      {
+        "command": "stvena.askAgent",
+        "key": "ctrl+k ctrl+a",
+        "mac": "cmd+k cmd+a",
+        "when": "editorTextFocus"
+      }
+    ]
   },
   "devDependencies": {
     "@vscode/vsce": "^3.9.2"

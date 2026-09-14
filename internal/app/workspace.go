@@ -233,29 +233,40 @@ func (s *screenState) dispatch(ctx context.Context, events chan<- any, stop <-ch
 			send("Checkpoint draft copied · paste and submit when ready · P: resume live", copyText(value))
 		}()
 	case "save-settings":
+	case "ide-mode":
+		// The split changes shape, so the panes have to be measured again.
+		s.fullscreen = false
+		s.diffFocused = false
+		s.relayout(s.layout.Width, s.layout.Height)
+		s.resizeAgents()
 	case "quit-app":
 		return true
 	case "paste-agent", "paste-context":
 		s.pasteToAgent(events, stop)
 		return false
-	case "paste-rejections":
-		if s.pendingRejectionDraft == "" {
+	case "paste-draft":
+		if s.pendingDraft == "" {
 			break
 		}
 		if !s.exited && s.agentInput != nil && s.agentName != "" {
-			s.pasteOverride = s.pendingRejectionDraft
+			s.pasteOverride = s.pendingDraft
 			s.pasteToAgent(events, stop)
 			return false
 		}
 		// Standalone review and unsupported commands fall back to the clipboard.
-		// The working tree is already reverted; the agent still has to be told.
-		value := s.pendingRejectionDraft
-		s.pendingRejectionDraft = ""
+		// For rejections the working tree is already reverted, so the agent still
+		// has to be told one way or another.
+		value, kind := s.pendingDraft, s.pendingDraftKind
+		s.pendingDraft, s.pendingDraftKind = "", ""
 		s.review.RejectionUndelivered = false
+		message := "Question copied · paste it into your agent"
+		if kind == "rejections" {
+			message = "Rejections copied · paste them into your agent so it does not re-apply them"
+		}
 		s.workers.Add(1)
 		go func() {
 			defer s.workers.Done()
-			send("Rejections copied · paste them into your agent so it does not re-apply them", copyText(value))
+			send(message, copyText(value))
 		}()
 	case "quit":
 		if !s.agentsRunning() {

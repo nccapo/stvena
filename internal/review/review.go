@@ -92,6 +92,7 @@ type State struct {
 	Rejections                        []Rejection
 	RejectionStatus                   string
 	AutoSubmitRejections              bool
+	IDEMode, IDEDetected              bool
 	RejectionUndelivered              bool
 	SettingsDirty                     bool
 	History                           map[string]Record
