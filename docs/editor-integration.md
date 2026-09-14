@@ -204,9 +204,14 @@ activity inputs are protocol fixtures; live model-driven hook execution remains
 unverified. Other forks and remote editor hosts remain unverified.
 
 On 2026-09-14, the expanded suite including the accept/reject surface passed in
-stock VS Code 1.137.0 (Apple Silicon) against a source build of the extension.
-Antigravity was not re-verified for 0.3.0: its host blocked on an application
-auto-update before the tests ran.
+stock VS Code 1.137.0 and in Antigravity IDE 2.5.5 (VS Code base 1.107.0), both
+on Apple Silicon, against a source build of the extension.
+
+Check for the `STVENA_HOST_TESTS_PASSED` line, not the exit status. Several
+editor launchers detach and return zero before the tests have run, so a silent
+exit 0 means the suite never reported, not that it passed. Note also that
+`Antigravity IDE.app` is the editor; the separate `Antigravity.app` is a
+different application and blocks on its own auto-update.
 
 For v0.2.0-preview.1, the packaged Stvena Live 0.2.0 VSIX was extracted and tested
 in fresh, isolated VS Code and Antigravity profiles on macOS. Both passed the
