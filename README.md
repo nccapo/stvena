@@ -382,9 +382,10 @@ also report read locations. Blue read markers and amber edit markers show the
 relevant lines with an inline label; markers expire after 15 seconds. Codex
 requires its normal `/hooks` trust review before read reporting runs.
 
-The purple review marker and editor-to-TUI commands currently require source
-builds of both Stvena and the extension from this repository. The published
-0.2.x preview continues to provide read/edit following only.
+Accept and reject, the per-block actions, Explorer badges, asking the agent
+about a selection, and IDE mode need Stvena **0.3.0-preview.1** or a current
+source build. Against an older binary the extension hides what that binary
+cannot do and keeps its 0.2.x read and edit following.
 
 Install **Stvena Live** by **nccapo** from the VS Code Extensions view, or run:
 
@@ -393,26 +394,26 @@ code --install-extension nccapo.stvena-live
 ```
 
 Then install the compatible Stvena binary on macOS or Linux. The extension and
-terminal application are installed separately; editor following requires the
-[v0.2.0-preview.1 binary](https://github.com/nccapo/stvena/releases/tag/v0.2.0-preview.1)
+terminal application are installed separately; the editor features require the
+[v0.3.0-preview.1 binary](https://github.com/nccapo/stvena/releases/tag/v0.3.0-preview.1)
 or a current source build:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/nccapo/stvena/v0.2.0-preview.1/install.sh | \
-  STVENA_VERSION=v0.2.0-preview.1 sh
+curl -fsSL https://raw.githubusercontent.com/nccapo/stvena/v0.3.0-preview.1/install.sh | \
+  STVENA_VERSION=v0.3.0-preview.1 sh
 ```
 
 Open a trusted local Git workspace in VS Code, check that `stvena --version`
-reports `0.2.0-preview.1`, and run `stvena` or `stvena claude` in its integrated
+reports `0.3.0-preview.1`, and run `stvena` or `stvena claude` in its integrated
 terminal. No Go or Node.js installation is needed. The default Stvena installer
 selects the stable release, which predates the editor bridge, so use the explicit
 preview version above.
 
-Stvena Live **0.2.1** includes the Stvena icon in its extension listing. Marketplace
-installations receive updates through VS Code according to your update settings.
-For Antigravity or manual installation, use **Extensions: Install from VSIX…**;
-the original GitHub preview includes extension **0.2.0**, and a current source
-build produces **0.2.1**. See the [extension guide](extensions/vscode/README.md)
+Stvena Live **0.3.0** adds accept and reject. Marketplace installations receive
+updates through VS Code according to your update settings; a pre-release version
+needs **Switch to Pre-Release Version** on the extension page. For Antigravity
+or manual installation, use **Extensions: Install from VSIX…** with the VSIX
+attached to the release. See the [extension guide](extensions/vscode/README.md)
 for both installation paths and troubleshooting.
 
 Click **Stvena: Following** in the status bar to pause or resume navigation;
