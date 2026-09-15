@@ -80,6 +80,12 @@ cannot do. See the [changelog](CHANGELOG.md).
 | Status bar | Pending rejections; click to apply them now |
 | Explorer | A badge per file: blocks left to review, ✓ reviewed, ✗ rejected |
 
+New files show **Reject file**, because rejecting an addition removes the whole
+file. After a whole-file rejection, **Undo file rejection** on any affected
+block cancels that file's queued rejection. **Apply Rejected Changes Now**
+reports the confirmed result, including failed reverts and any changes left
+in the staging index.
+
 Accepting is the same review mark as **Space** in the terminal, and rejecting
 uses the same queue as **X**, so the two surfaces always agree.
 
@@ -109,7 +115,7 @@ saved-edit following works independently of them.
    `go build -o bin/stvena ./cmd/stvena`.
 2. In `extensions/vscode`, run `npm ci` and `npm run package`.
 3. In VS Code, run **Extensions: Install from VSIX…** and select the generated
-   `stvena-live-0.2.1.vsix`.
+   `stvena-live-0.3.1.vsix`.
 4. Open a Git project and run the newly built Stvena binary in its terminal.
    Released binaries predating this integration do not publish editor updates.
 5. Ask your agent to edit a file. **Stvena Live** in Explorer lists the latest

@@ -2,7 +2,7 @@
   "name": "stvena-live",
   "displayName": "Stvena Live",
   "description": "Accept or reject agent changes in your editor, and follow agent reads and edits with live source navigation.",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "icon": "media/icon.png",
   "publisher": "nccapo",
   "license": "MIT",
@@ -74,7 +74,7 @@
       },
       {
         "command": "stvena.rejectHunkWithReason",
-        "title": "Stvena: Reject Change with Reason\u2026"
+        "title": "Stvena: Reject Change with Reason…"
       },
       {
         "command": "stvena.undoRejectHunk",

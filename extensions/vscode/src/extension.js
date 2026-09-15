@@ -278,8 +278,7 @@ function activate(context) {
         return;
       }
       try {
-        await bridge.writeRequest(owner, { action: 'apply-rejections' });
-        void vscode.window.showInformationMessage('Stvena: applying rejected changes.');
+        await decisions.decide('apply-rejections', { root: owner.root });
       } catch (error) {
         void vscode.window.showErrorMessage(`Stvena: ${error.message}`);
       }

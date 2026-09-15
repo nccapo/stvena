@@ -59,6 +59,13 @@ func (s *screenState) applyRejections(force bool) bool {
 		return false
 	}
 
+	_ = s.applyRejectionBatch()
+	return true
+}
+
+// applyRejectionBatch records the outcome and queues the handoff even if Git
+// refuses the batch. Its error lets the editor report the actual outcome.
+func (s *screenState) applyRejectionBatch() error {
 	notice, err := diffview.Revert(s.root, s.review.RejectionTargets())
 	unreverted := ""
 	if err != nil {
@@ -78,11 +85,14 @@ func (s *screenState) applyRejections(force bool) bool {
 	}
 	if saveErr := s.review.Save(); saveErr != nil {
 		s.review.Notice = saveErr.Error()
+		if err == nil {
+			err = saveErr
+		}
 	}
 	if draft != "" {
 		s.queueAgentDraft(draft, "rejections")
 	}
-	return true
+	return err
 }
 
 // rejectCurrent queues the selected file or hunk. Nothing is reverted here.

@@ -187,3 +187,19 @@ func TestRejectionQueueIsBounded(t *testing.T) {
 	}
 	t.Fatalf("queue grew past its limit: %d", len(s.PendingRejections()))
 }
+
+func TestWholeFileRejectionSupersedesHunksFromAnotherCapture(t *testing.T) {
+	var s State
+	first := rejectFile("a.go", 2)
+	if err := s.Reject(first, -1, 0, 0, ""); err != nil {
+		t.Fatal(err)
+	}
+	later := rejectFile("a.go", 3)
+	if err := s.Reject(later, 1, 0, 0, ""); err != nil {
+		t.Fatal(err)
+	}
+	targets := s.RejectionTargets()
+	if len(targets) != 1 || len(targets[0].Hunks) != 0 || diffview.Revision(targets[0].File) != diffview.Revision(first) {
+		t.Fatalf("whole-file rejection lost its captured target: %+v", targets)
+	}
+}

@@ -140,15 +140,27 @@ func (s *State) PendingRejections() []Rejection {
 	return pending
 }
 
-// RejectionTargets groups the queue into one revert target per file, so every
-// hunk of a file is reverse-applied by a single patch section.
+// RejectionTargets groups hunks only when they share the same captured patch.
+// An ordinal from a later capture must never select a hunk from an earlier one.
+// All sections still go to one atomic git apply, including repeated paths.
 func (s *State) RejectionTargets() []diffview.Target {
 	order := map[string]int{}
 	var targets []diffview.Target
-	for _, r := range s.PendingRejections() {
-		index, ok := order[r.File.Key()]
+	pending := s.PendingRejections()
+	wholeFiles := map[string]bool{}
+	for _, r := range pending {
+		if r.Hunk < 0 {
+			wholeFiles[r.File.Key()] = true
+		}
+	}
+	for _, r := range pending {
+		if r.Hunk >= 0 && wholeFiles[r.File.Key()] {
+			continue
+		}
+		key := r.File.Key() + "\x00" + diffview.Revision(r.File)
+		index, ok := order[key]
 		if !ok {
-			order[r.File.Key()] = len(targets)
+			order[key] = len(targets)
 			target := diffview.Target{File: r.File}
 			if r.Hunk >= 0 {
 				target.Hunks = []int{r.Hunk}

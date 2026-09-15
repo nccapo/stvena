@@ -11,6 +11,7 @@ function harness(options = {}) {
   const painted = new Map();
   const warnings = [];
   const errors = [];
+  const information = [];
   const document = {
     isDirty: !!options.dirty,
     uri: { scheme: 'file', fsPath: path.join('/repo', 'a.go') },
@@ -31,6 +32,7 @@ function harness(options = {}) {
       registerFileDecorationProvider: provider => { vscode.badges = provider; return { dispose() {} }; },
       showErrorMessage: message => { errors.push(message); },
       showWarningMessage: message => { warnings.push(message); },
+      showInformationMessage: message => { information.push(message); },
     },
     languages: { registerCodeLensProvider: (_selector, provider) => { vscode.lenses = provider; return { dispose() {} }; } },
     EventEmitter: class { constructor() { this.event = () => ({ dispose() {} }); } fire() {} dispose() {} },
@@ -46,7 +48,7 @@ function harness(options = {}) {
     if (options.sendFails) return Promise.reject(new Error('does not support "reject"'));
     return Promise.resolve({ id: `req-${sent.length}` });
   });
-  return { ui, vscode, sent, painted, warnings, errors, document };
+  return { ui, vscode, sent, painted, warnings, errors, information, document };
 }
 
 function repos(hunk = {}, extra = {}) {
@@ -191,4 +193,40 @@ test('decisions on other hunks do not leak into this one', async () => {
   await h.ui.decide('reject', { root: '/repo', path: 'a.go', hunkId: OTHER, start: 20, end: 21 });
   // The published hunk is untouched; only the other one was rejected.
   assert.deepEqual(titles(h), ['✓ Accept', '✗ Reject', 'Reject with reason…']);
+});
+
+
+test('whole-file rejection lenses identify what Undo cancels and retain stale-click tokens', () => {
+  const h = harness();
+  const state = repos({ rejected: true });
+  state[0].review.files[0].rejected = true;
+  h.ui.update(state);
+  assert.deepEqual(titles(h), ['✗ Rejected', 'Undo file rejection']);
+  const undo = h.vscode.lenses.provideCodeLenses(h.document)[1];
+  assert.equal(undo.command.arguments[0].hunkId, HUNK);
+});
+
+test('new-file lenses describe whole-file rejection and retain the captured hunk token', () => {
+  const h = harness();
+  const state = repos();
+  state[0].review.files[0].status = 'A';
+  h.ui.update(state);
+  assert.deepEqual(titles(h), ['✓ Accept', '✗ Reject file', 'Reject file with reason…']);
+  const reject = h.vscode.lenses.provideCodeLenses(h.document)[1];
+  assert.equal(reject.command.arguments[0].hunkId, HUNK);
+});
+
+test('explicit apply reports the acknowledged outcome once, even after the queue disappears', async () => {
+  for (const status of ['refused', 'applied']) {
+    const h = harness();
+    h.ui.update(repos());
+    await h.ui.decide('apply-rejections', { root: '/repo' });
+    assert.equal(h.sent[0].request.action, 'apply-rejections');
+    const message = status === 'refused' ? 'Could not revert; agent handoff queued' : 'Reverted 2 changes';
+    const state = repos({}, { files: [], lastRequest: { id: 'req-1', action: 'apply-rejections', status, message } });
+    h.ui.update(state);
+    h.ui.update(state);
+    assert.deepEqual(h.warnings, status === 'refused' ? [`Stvena: ${message}`] : []);
+    assert.deepEqual(h.information, status === 'applied' ? [`Stvena: ${message}`] : []);
+  }
 });

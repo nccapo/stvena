@@ -67,7 +67,8 @@ async function run() {
   await vscode.extensions.getExtension('nccapo.stvena-live').activate();
   try {
     await publish(before, after);
-    await waitFor(() => visible('example.txt'), 'Automatic source navigation did not open');
+    await waitFor(() => visible('example.txt')?.selection.active.line === 3,
+      'Automatic source navigation did not select the changed line');
     assert.equal(visible('example.txt').document.getText(), 'one\ntwo\nthree\nnew\n');
     assert.equal(visible('example.txt').selection.active.line, 3);
     noDiffs();
@@ -79,7 +80,8 @@ async function run() {
     assert.ok(visible('example.txt'), 'Pause navigated away from the current file');
     assert.equal(visible('next.txt'), undefined);
     await vscode.commands.executeCommand('stvena.toggleFollow');
-    await waitFor(() => visible('next.txt'), 'Resume did not show the newest file');
+    await waitFor(() => visible('next.txt')?.selection.active.line === 3,
+      'Resume did not select the newest changed line');
     assert.equal(visible('next.txt').selection.active.line, 3);
 
     const empty = '0'.repeat(40);
@@ -183,6 +185,27 @@ async function run() {
       at: new Date().toISOString() } });
     await waitFor(async () => (await lensTitles('reading.txt')).includes('✓ Accept'),
       'A refused rejection stayed on screen');
+
+    // A whole-file rejection offers an explicit, token-bound Undo action.
+    const wholeFile = reviewFile({ rejected: true });
+    wholeFile.files[0].rejected = true;
+    await writeReview(undefined, wholeFile);
+    await waitFor(async () => (await lensTitles('reading.txt')).includes('Undo file rejection'),
+      'Whole-file Undo did not describe its scope');
+    const beforeUndoFile = (await readRequest()).id;
+    const fileLenses = await vscode.commands.executeCommand('vscode.executeCodeLensProvider',
+      vscode.Uri.file(path.join(root, 'reading.txt')));
+    const undoFile = fileLenses.find(lens => lens.command?.title === 'Undo file rejection').command;
+    await vscode.commands.executeCommand(undoFile.command, ...undoFile.arguments);
+    await waitFor(async () => (await readRequest()).id !== beforeUndoFile, 'Whole-file Undo was not sent');
+    assert.equal((await readRequest()).action, 'undo-reject');
+    assert.equal((await readRequest()).hunkId, HUNK);
+
+    const addition = reviewFile();
+    addition.files[0].status = 'A';
+    await writeReview(undefined, addition);
+    await waitFor(async () => (await lensTitles('reading.txt')).includes('✗ Reject file'),
+      'Added-file rejection did not describe its scope');
 
     // A queued rejection can be applied from the editor.
     await writeReview(undefined, { ...reviewFile({ rejected: true }),
