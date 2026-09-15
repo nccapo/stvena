@@ -86,9 +86,11 @@ func (s *screenState) applyEditorRequest(request editor.Request) {
 			s.ack(request, "refused", "No pending rejections")
 			return
 		}
-		count := len(s.review.PendingRejections())
-		s.applyRejections(true)
-		s.ack(request, "applied", fmt.Sprintf("Applied %d rejection(s) from the editor", count))
+		status := "applied"
+		if err := s.applyRejectionBatch(); err != nil {
+			status = "refused"
+		}
+		s.ack(request, status, s.review.Notice)
 		return
 	case "next-unreviewed":
 		s.review.Key("N", s.visibleLines())
@@ -271,6 +273,11 @@ func (s *screenState) applyEditorDecision(request editor.Request) {
 		}
 		s.ack(request, "applied", fmt.Sprintf("%s %s in %s from the editor", verb, what, request.Path))
 	case "reject":
+		// Added files can only be removed as a whole. Validate the hunk token
+		// above before widening the action to the captured addition.
+		if file.Status == "A" {
+			hunk, what = -1, "file"
+		}
 		start, end := request.Line, request.EndLine
 		if err := s.review.Reject(file, hunk, start, end, request.Text); err != nil {
 			s.ack(request, "refused", err.Error())
@@ -287,10 +294,13 @@ func (s *screenState) applyEditorDecision(request editor.Request) {
 	case "undo-reject":
 		id := ""
 		for _, r := range s.review.PendingRejections() {
-			if r.File.Path != file.Path {
+			if r.File.Key() != file.Key() {
 				continue
 			}
-			if (hunk < 0 && r.HunkID == "") || (hunk >= 0 && r.HunkID == review.HunkID(file, hunk)) {
+			if r.HunkID == "" || (hunk >= 0 && r.HunkID == review.HunkID(file, hunk)) {
+				if r.HunkID == "" {
+					what = "file"
+				}
 				id = r.ID
 				break
 			}

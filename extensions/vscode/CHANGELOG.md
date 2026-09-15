@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.1
+
+- Reject newly added files as a whole from their inline action, while validating
+  the captured hunk token before queuing the deletion.
+- Make Undo on a whole-file rejection work from every affected change block,
+  and label it “Undo file rejection.”
+- Report the actual outcome of Apply Rejections, including failed reverts and
+  warnings about changes left in the staging index.
+
 ## 0.3.0
 
 - Accept or reject each of the agent's change blocks from the working file, with
