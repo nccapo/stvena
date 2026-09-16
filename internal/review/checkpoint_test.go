@@ -9,6 +9,8 @@ import (
 
 	"github.com/nccapo/stvena/internal/diffview"
 	"github.com/nccapo/stvena/internal/session"
+
+	"github.com/nccapo/stvena/internal/repo"
 )
 
 func checkpointSnapshot() diffview.Snapshot {
@@ -164,7 +166,7 @@ func TestSavedCheckpointReopensCapturedCodeAndStaleMarks(t *testing.T) {
 		}
 	}
 	write("before\n")
-	saved, err := session.Open(root, false, "")
+	saved, err := session.Open(repo.Git(root), false, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,10 +177,10 @@ func TestSavedCheckpointReopensCapturedCodeAndStaleMarks(t *testing.T) {
 		t.Fatal(err)
 	}
 	var s State
-	if err := s.Load(root); err != nil {
+	if err := s.Load(repo.Git(root)); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.StartCheckpoint(diffview.CompareTrees(root, saved.Baseline, tree)); err != nil {
+	if err := s.StartCheckpoint(diffview.CompareTrees(repo.Git(root), saved.Baseline, tree)); err != nil {
 		t.Fatal(err)
 	}
 	s.Key(" ", 10)
@@ -196,20 +198,20 @@ func TestSavedCheckpointReopensCapturedCodeAndStaleMarks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	live := diffview.CompareTrees(root, saved.Baseline, liveTree)
+	live := diffview.CompareTrees(repo.Git(root), saved.Baseline, liveTree)
 	s.Update(live)
 	if err := s.Save(); err != nil {
 		t.Fatal(err)
 	}
 	var reopened State
-	if err := reopened.Load(root); err != nil {
+	if err := reopened.Load(repo.Git(root)); err != nil {
 		t.Fatal(err)
 	}
 	reopened.Update(live)
 	if !reopened.Pinned || reopened.Snapshot.Tree != tree || reopened.ReviewedCount() != 1 || !reopened.CheckpointNewer() || reopened.Checkpoint.Draft != s.Checkpoint.Draft {
 		t.Fatal("saved checkpoint state not restored")
 	}
-	content := diffview.LoadContent(root, *reopened.Current())
+	content := diffview.LoadContent(repo.Git(root), *reopened.Current())
 	if content.Err != nil || strings.Join(content.Lines, "\n") != "captured" {
 		t.Fatalf("reopened file is not captured code: %+v", content)
 	}
@@ -224,7 +226,7 @@ func TestSavedCheckpointReopensCapturedCodeAndStaleMarks(t *testing.T) {
 		t.Fatal(err)
 	}
 	var resumed State
-	if err := resumed.Load(root); err != nil {
+	if err := resumed.Load(repo.Git(root)); err != nil {
 		t.Fatal(err)
 	}
 	if resumed.Checkpoint != nil {

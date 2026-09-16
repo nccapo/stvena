@@ -2,17 +2,17 @@
 package editor
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/nccapo/stvena/internal/diffview"
 	"github.com/nccapo/stvena/internal/session"
+
+	"github.com/nccapo/stvena/internal/repo"
 )
 
 // State is protocol v1. Files describes the most recent capture that changed,
@@ -44,21 +44,17 @@ type Change struct {
 }
 
 type Publisher struct {
-	path, root, previous string
-	state                State
-	activityPath         string
+	path, previous string
+	ws             repo.Workspace
+	state          State
+	activityPath   string
 }
 
 func Open(saved *session.Session) (*Publisher, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "git", "-C", saved.Root, "rev-parse", "--absolute-git-dir").Output()
-	if err != nil {
-		return nil, err
-	}
 	return &Publisher{
-		path: filepath.Join(strings.TrimSuffix(string(out), "\n"), "stvena-live.json"),
-		root: saved.Root, previous: saved.Baseline,
+		path:         filepath.Join(saved.WS.DescriptorDir(), "stvena-live.json"),
+		ws:           saved.WS,
+		previous:     saved.Baseline,
 		activityPath: ActivityPath(saved),
 		state:        State{Version: 1, Session: saved.ID, Active: true, Files: []Change{}},
 	}, nil
@@ -69,7 +65,7 @@ func (p *Publisher) Publish(tree string, captureErr error) error {
 	previous := p.previous
 	next.Error = ""
 	if captureErr == nil && tree != p.previous {
-		delta := diffview.CompareTrees(p.root, p.previous, tree)
+		delta := diffview.CompareTrees(p.ws, p.previous, tree)
 		captureErr = delta.Err
 		if captureErr == nil {
 			files := make([]Change, 0, len(delta.Files))

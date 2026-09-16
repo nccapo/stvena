@@ -9,6 +9,8 @@ import (
 
 	"github.com/nccapo/stvena/internal/diffview"
 	"github.com/nccapo/stvena/internal/editor"
+
+	"github.com/nccapo/stvena/internal/repo"
 )
 
 func TestEditorRequestsOpenStvenaAndCollectCapturedContext(t *testing.T) {
@@ -24,11 +26,11 @@ func TestEditorRequestsOpenStvenaAndCollectCapturedContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	tree := strings.TrimSpace(string(out))
-	s := screenState{root: root}
-	s.sessionView = diffview.CompareTrees(root, baseline, tree)
-	s.workspace = diffview.Collect(root)
-	s.projectView = diffview.Project(root, tree)
-	if err := s.review.Load(root); err != nil {
+	s := screenState{ws: repo.Git(root)}
+	s.sessionView = diffview.CompareTrees(repo.Git(root), baseline, tree)
+	s.workspace = diffview.Collect(repo.Git(root))
+	s.projectView = diffview.Project(repo.Git(root), tree)
+	if err := s.review.Load(repo.Git(root)); err != nil {
 		t.Fatal(err)
 	}
 	s.applyEditorRequest(editor.Request{Action: "review", Path: "a.go", Line: 2, EndLine: 2})

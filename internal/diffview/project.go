@@ -4,17 +4,19 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/nccapo/stvena/internal/repo"
 )
 
 // Project lists the captured tree, including unchanged and nonignored new files.
 // Blob IDs keep selections stable even if the working file changes during a read.
-func Project(root, tree string) Snapshot {
-	s := Snapshot{Root: root, Tree: tree, Label: "Project files", UpdatedAt: time.Now()}
+func Project(ws repo.Workspace, tree string) Snapshot {
+	s := Snapshot{Root: ws.Root, Tree: tree, Label: "Project files", UpdatedAt: time.Now()}
 	if !validOID(tree) {
 		s.Err = fmt.Errorf("project files need a captured Git snapshot")
 		return s
 	}
-	out, err := gitOutput(root, "ls-tree", "-r", "-z", "--full-tree", tree)
+	out, err := gitOutput(ws, "ls-tree", "-r", "-z", "--full-tree", tree)
 	if err != nil {
 		s.Err = err
 		return s

@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/nccapo/stvena/internal/session"
+
+	"github.com/nccapo/stvena/internal/repo"
 )
 
 func TestReviewPublisherAndEditorRequests(t *testing.T) {
@@ -20,7 +22,7 @@ func TestReviewPublisherAndEditorRequests(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "file.txt"), []byte("one\ntwo\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	saved, err := session.Open(root, false, "")
+	saved, err := session.Open(repo.Git(root), false, "")
 	if err != nil {
 		t.Fatal(err)
 	}

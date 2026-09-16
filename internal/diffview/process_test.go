@@ -7,6 +7,8 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+
+	"github.com/nccapo/stvena/internal/repo"
 )
 
 func TestRefreshGitRunsOutsideTerminalForegroundGroup(t *testing.T) {
@@ -17,7 +19,7 @@ func TestRefreshGitRunsOutsideTerminalForegroundGroup(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	out, err := gitOutput(t.TempDir(), "status")
+	out, err := gitOutput(repo.Git(t.TempDir()), "status")
 	if err != nil {
 		t.Fatal(err)
 	}

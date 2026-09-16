@@ -7,10 +7,13 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/nccapo/stvena/internal/repo"
 )
 
 func TestCollectTrackedAndUntrackedChanges(t *testing.T) {
 	root := t.TempDir()
+	ws := repo.Git(root)
 	runGit(t, root, "init", "-q")
 	runGit(t, root, "config", "user.email", "test@example.com")
 	runGit(t, root, "config", "user.name", "Test")
@@ -20,7 +23,7 @@ func TestCollectTrackedAndUntrackedChanges(t *testing.T) {
 
 	writeFile(t, root, "tracked.txt", "after\n")
 	writeFile(t, root, "new.txt", "one\ntwo\n")
-	snapshot := Collect(root)
+	snapshot := Collect(ws)
 	if snapshot.Err != nil {
 		t.Fatal(snapshot.Err)
 	}
@@ -39,13 +42,6 @@ func TestCollectTrackedAndUntrackedChanges(t *testing.T) {
 	}
 }
 
-func TestGitRootRejectsNonRepository(t *testing.T) {
-	_, err := GitRoot(t.TempDir())
-	if err == nil {
-		t.Fatal("GitRoot returned nil error outside repository")
-	}
-}
-
 func runGit(t *testing.T, root string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", append([]string{"-C", root}, args...)...)
@@ -61,17 +57,17 @@ func writeFile(t *testing.T, root, name, contents string) {
 	}
 }
 
-func repo(t *testing.T) string {
+func gitRepo(t *testing.T) repo.Workspace {
 	t.Helper()
 	root := t.TempDir()
 	runGit(t, root, "init", "-q")
 	runGit(t, root, "config", "user.email", "test@example.com")
 	runGit(t, root, "config", "user.name", "Test")
-	return root
+	return repo.Git(root)
 }
-func collectOK(t *testing.T, root string) Snapshot {
+func collectOK(t *testing.T, ws repo.Workspace) Snapshot {
 	t.Helper()
-	s := Collect(root)
+	s := Collect(ws)
 	if s.Err != nil {
 		t.Fatal(s.Err)
 	}
@@ -88,14 +84,15 @@ func findFile(t *testing.T, s Snapshot, path string, scope Scope) File {
 	return File{}
 }
 func TestSeparateIndexAndWorktreeEvenWhenNetChangeIsZero(t *testing.T) {
-	root := repo(t)
+	ws := gitRepo(t)
+	root := ws.Root
 	writeFile(t, root, "file.txt", "original\n")
 	runGit(t, root, "add", ".")
 	runGit(t, root, "commit", "-qm", "initial")
 	writeFile(t, root, "file.txt", "staged\n")
 	runGit(t, root, "add", ".")
 	writeFile(t, root, "file.txt", "original\n")
-	s := collectOK(t, root)
+	s := collectOK(t, ws)
 	if s.FileCount != 1 || len(s.Files) != 2 || s.Added != 2 || s.Deleted != 2 {
 		t.Fatalf("wrong totals: %+v", s)
 	}
@@ -113,11 +110,12 @@ func TestSeparateIndexAndWorktreeEvenWhenNetChangeIsZero(t *testing.T) {
 	}
 }
 func TestUnbornRepositoryIncludesStagedFiles(t *testing.T) {
-	root := repo(t)
+	ws := gitRepo(t)
+	root := ws.Root
 	writeFile(t, root, "staged.txt", "one\ntwo\n")
 	runGit(t, root, "add", ".")
 	writeFile(t, root, "new.txt", "new\n")
-	s := collectOK(t, root)
+	s := collectOK(t, ws)
 	if s.FileCount != 2 || s.Added != 3 {
 		t.Fatalf("wrong totals: %+v", s)
 	}
@@ -126,7 +124,8 @@ func TestUnbornRepositoryIncludesStagedFiles(t *testing.T) {
 	}
 }
 func TestRenameDeletionBinaryAndUnusualPaths(t *testing.T) {
-	root := repo(t)
+	ws := gitRepo(t)
+	root := ws.Root
 	for _, name := range []string{"old.txt", "deleted.txt", "tab\tline\n.txt", "binary.dat"} {
 		writeFile(t, root, name, "before\n")
 	}
@@ -138,7 +137,7 @@ func TestRenameDeletionBinaryAndUnusualPaths(t *testing.T) {
 	}
 	writeFile(t, root, "tab\tline\n.txt", "after\n")
 	writeFile(t, root, "binary.dat", "\x00\x01\x02")
-	s := collectOK(t, root)
+	s := collectOK(t, ws)
 	f := findFile(t, s, "renamed file.txt", Staged)
 	if f.OldPath != "old.txt" || f.Status != "R" {
 		t.Fatalf("bad rename: %+v", f)
@@ -156,7 +155,8 @@ func TestRenameDeletionBinaryAndUnusualPaths(t *testing.T) {
 	}
 }
 func TestUntrackedLimitsAndSymlinks(t *testing.T) {
-	root := repo(t)
+	ws := gitRepo(t)
+	root := ws.Root
 	writeFile(t, root, ".gitignore", "ignored\n")
 	writeFile(t, root, "ignored", "secret")
 	writeFile(t, root, "empty", "")
@@ -168,7 +168,7 @@ func TestUntrackedLimitsAndSymlinks(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(root, "link")); err != nil {
 		t.Fatal(err)
 	}
-	s := collectOK(t, root)
+	s := collectOK(t, ws)
 	if s.FileCount != 4 {
 		t.Fatalf("ignored file counted: %+v", s)
 	}
@@ -184,17 +184,19 @@ func TestUntrackedLimitsAndSymlinks(t *testing.T) {
 	}
 }
 func TestAllUntrackedFilesCountedPastPreviewLimit(t *testing.T) {
-	root := repo(t)
+	ws := gitRepo(t)
+	root := ws.Root
 	for i := 0; i < maxUntrackedFiles+2; i++ {
 		writeFile(t, root, fmt.Sprintf("file%03d", i), "new\n")
 	}
-	s := collectOK(t, root)
+	s := collectOK(t, ws)
 	if s.FileCount != maxUntrackedFiles+2 || len(s.Files) != maxUntrackedFiles+2 || !s.Approximate {
 		t.Fatalf("incomplete inventory: %+v", s)
 	}
 }
 func TestMergeConflict(t *testing.T) {
-	root := repo(t)
+	ws := gitRepo(t)
+	root := ws.Root
 	writeFile(t, root, "conflict", "base\n")
 	writeFile(t, root, "z-file", "before\n")
 	runGit(t, root, "add", ".")
@@ -207,7 +209,7 @@ func TestMergeConflict(t *testing.T) {
 	runGit(t, root, "commit", "-qam", "main")
 	_ = exec.Command("git", "-C", root, "merge", "other").Run()
 	writeFile(t, root, "z-file", "after\n")
-	s := collectOK(t, root)
+	s := collectOK(t, ws)
 	f := findFile(t, s, "z-file", Unstaged)
 	if !strings.Contains(strings.Join(f.Lines, "\n"), "+after") {
 		t.Fatalf("patch associated with wrong path: %+v", s.Files)

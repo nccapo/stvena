@@ -12,11 +12,20 @@ import (
 	"github.com/nccapo/stvena/internal/diffview"
 	"github.com/nccapo/stvena/internal/editor"
 	"github.com/nccapo/stvena/internal/session"
+
+	"github.com/nccapo/stvena/internal/repo"
 )
 
 func TestChangesRefreshFromExternalProcess(t *testing.T) {
-	root, _ := workflowProject(t)
-	saved, err := session.Open(root, true, "")
+	for _, mode := range projectModes() {
+		t.Run(mode.name, func(t *testing.T) { changesRefreshFromExternalProcess(t, mode.build) })
+	}
+}
+
+func changesRefreshFromExternalProcess(t *testing.T, build func(*testing.T) (repo.Workspace, string)) {
+	ws, _ := build(t)
+	root := ws.Root
+	saved, err := session.Open(ws, true, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -24,10 +33,10 @@ func TestChangesRefreshFromExternalProcess(t *testing.T) {
 	events, stop, done := make(chan any, 1), make(chan struct{}), make(chan struct{})
 	go func() {
 		defer close(done)
-		watchSnapshots(root, nil, saved, events, stop)
+		watchSnapshots(ws, nil, saved, events, stop)
 	}()
 	defer func() { close(stop); <-done }()
-	s := screenState{root: root, session: saved}
+	s := screenState{ws: ws, session: saved}
 	s.review.Source = "session"
 	await := func(matches func(diffEvent) bool) diffEvent {
 		t.Helper()
@@ -78,7 +87,7 @@ func TestChangesRefreshFromExternalProcess(t *testing.T) {
 		if e.project.Tree != e.session.Tree || e.snapshot.Tree != e.session.Tree {
 			t.Fatal("views did not refresh to the same captured files")
 		}
-		data, err := os.ReadFile(filepath.Join(root, ".git", "stvena-live.json"))
+		data, err := os.ReadFile(filepath.Join(ws.DescriptorDir(), "stvena-live.json"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -102,8 +111,14 @@ func TestChangesRefreshFromExternalProcess(t *testing.T) {
 }
 
 func TestWatcherDeliversFreshEditorRequest(t *testing.T) {
-	root, _ := workflowProject(t)
-	saved, err := session.Open(root, false, "")
+	for _, mode := range projectModes() {
+		t.Run(mode.name, func(t *testing.T) { watcherDeliversFreshEditorRequest(t, mode.build) })
+	}
+}
+
+func watcherDeliversFreshEditorRequest(t *testing.T, build func(*testing.T) (repo.Workspace, string)) {
+	ws, _ := build(t)
+	saved, err := session.Open(ws, false, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +126,7 @@ func TestWatcherDeliversFreshEditorRequest(t *testing.T) {
 	events, stop, done := make(chan any, 8), make(chan struct{}), make(chan struct{})
 	go func() {
 		defer close(done)
-		watchSnapshots(root, nil, saved, events, stop)
+		watchSnapshots(ws, nil, saved, events, stop)
 	}()
 	defer func() { close(stop); <-done }()
 	select {
@@ -123,7 +138,7 @@ func TestWatcherDeliversFreshEditorRequest(t *testing.T) {
 		t.Fatal("initial watcher refresh stalled")
 	}
 	request := editor.Request{Version: 1, Session: saved.ID, ID: "editor-request", Action: "review", Path: "a.go", Line: 2, EndLine: 2, UpdatedAt: time.Now().UTC()}
-	if err := session.AtomicJSON(filepath.Join(root, ".git", "stvena-request.json"), request); err != nil {
+	if err := session.AtomicJSON(filepath.Join(ws.DescriptorDir(), "stvena-request.json"), request); err != nil {
 		t.Fatal(err)
 	}
 	timer := time.NewTimer(10 * time.Second)

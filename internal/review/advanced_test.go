@@ -9,6 +9,8 @@ import (
 
 	"github.com/nccapo/stvena/internal/diffview"
 	"github.com/nccapo/stvena/internal/session"
+
+	"github.com/nccapo/stvena/internal/repo"
 )
 
 func TestPinCommentsAndPersistentReview(t *testing.T) {
@@ -17,7 +19,7 @@ func TestPinCommentsAndPersistentReview(t *testing.T) {
 		t.Fatalf("%s %v", out, err)
 	}
 	os.WriteFile(filepath.Join(root, "file.txt"), []byte("before\n"), 0644)
-	saved, err := session.Open(root, false, "")
+	saved, err := session.Open(repo.Git(root), false, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,10 +31,10 @@ func TestPinCommentsAndPersistentReview(t *testing.T) {
 	}
 	var s State
 	s.Source = "session"
-	if err = s.Load(root); err != nil {
+	if err = s.Load(repo.Git(root)); err != nil {
 		t.Fatal(err)
 	}
-	view := diffview.CompareTrees(root, saved.Baseline, tree)
+	view := diffview.CompareTrees(repo.Git(root), saved.Baseline, tree)
 	s.Update(view)
 	s.Key(" ", 10)
 	if err = s.Save(); err != nil {
@@ -44,7 +46,7 @@ func TestPinCommentsAndPersistentReview(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	live := diffview.CompareTrees(root, saved.Baseline, next)
+	live := diffview.CompareTrees(repo.Git(root), saved.Baseline, next)
 	s.Update(live)
 	if s.Snapshot.Tree != tree || s.Latest.Tree != next {
 		t.Fatal("pin did not retain displayed snapshot")
@@ -61,7 +63,7 @@ func TestPinCommentsAndPersistentReview(t *testing.T) {
 	}
 	var reopened State
 	reopened.Source = "session"
-	if err = reopened.Load(root); err != nil {
+	if err = reopened.Load(repo.Git(root)); err != nil {
 		t.Fatal(err)
 	}
 	reopened.Update(view)

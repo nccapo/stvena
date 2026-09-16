@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/nccapo/stvena/internal/session"
+
+	"github.com/nccapo/stvena/internal/repo"
 )
 
 func TestChecksUseCapturedCodeAndKeepLiveFiles(t *testing.T) {
@@ -19,13 +21,13 @@ func TestChecksUseCapturedCodeAndKeepLiveFiles(t *testing.T) {
 	}
 	path := filepath.Join(root, "version")
 	os.WriteFile(path, []byte("captured\n"), 0644)
-	s, err := session.Open(root, false, "")
+	s, err := session.Open(repo.Git(root), false, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer s.Close()
 	os.WriteFile(path, []byte("live\n"), 0644)
-	r := Run(context.Background(), root, s.Baseline, "cat version; echo check-edit > version; test ! -e .git")
+	r := Run(context.Background(), repo.Git(root), s.Baseline, "cat version; echo check-edit > version; test ! -e .git")
 	if !r.SourceChanged || r.ExitCode != 0 || r.Status != "Passed" || !strings.Contains(r.Output, "captured") || r.Tree != s.Baseline {
 		t.Fatalf("wrong result: %+v", r)
 	}
@@ -36,7 +38,7 @@ func TestChecksUseCapturedCodeAndKeepLiveFiles(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 	start := time.Now()
-	r = Run(ctx, root, s.Baseline, "sleep 30")
+	r = Run(ctx, repo.Git(root), s.Baseline, "sleep 30")
 	if r.Status != "Cancelled" || time.Since(start) > 3*time.Second {
 		t.Fatalf("check cancellation failed: %+v", r)
 	}
@@ -52,12 +54,12 @@ func TestChecksRejectExternalSourceSymlink(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(root, "link")); err != nil {
 		t.Fatal(err)
 	}
-	s, err := session.Open(root, false, "")
+	s, err := session.Open(repo.Git(root), false, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	r := Run(context.Background(), root, s.Baseline, "echo changed > link")
+	r := Run(context.Background(), repo.Git(root), s.Baseline, "echo changed > link")
 	if r.Status != "Failed" || r.ExitCode != -1 {
 		t.Fatalf("external source was used: %+v", r)
 	}
@@ -70,7 +72,7 @@ func TestChecksRejectExternalSourceSymlink(t *testing.T) {
 func TestCancelledBeforeSnapshotPreparation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	r := Run(ctx, t.TempDir(), strings.Repeat("a", 40), "echo should-not-run")
+	r := Run(ctx, repo.Git(t.TempDir()), strings.Repeat("a", 40), "echo should-not-run")
 	if r.Status != "Cancelled" || r.ExitCode != -1 {
 		t.Fatalf("preparation cancellation mislabeled: %+v", r)
 	}

@@ -14,6 +14,8 @@ import (
 	"github.com/nccapo/stvena/internal/editor"
 	"github.com/nccapo/stvena/internal/review"
 	"github.com/nccapo/stvena/internal/session"
+
+	"github.com/nccapo/stvena/internal/repo"
 )
 
 func rejectGit(t *testing.T, root string, args ...string) {
@@ -40,7 +42,7 @@ func rejectRepo(t *testing.T) (root, path string, file diffview.File) {
 	if err := os.WriteFile(path, []byte("AGENT\ntwo\nthree\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range diffview.Collect(root).Files {
+	for _, f := range diffview.Collect(repo.Git(root)).Files {
 		if f.Scope == diffview.Unstaged {
 			return root, path, f
 		}
@@ -52,7 +54,7 @@ func rejectRepo(t *testing.T) (root, path string, file diffview.File) {
 func TestRejectionsWaitForTheAgentToFinishItsTurn(t *testing.T) {
 	root, path, file := rejectRepo(t)
 	s := terminalState(t)
-	s.root = root
+	s.ws.Root = root
 	a := s.activeAgent()
 	a.attention.Hooked = true
 	a.attention.Execution = attention.Running
@@ -105,7 +107,7 @@ func TestRejectionsWaitForTheAgentToFinishItsTurn(t *testing.T) {
 func TestUnhookedAgentNeverAutoApplies(t *testing.T) {
 	root, path, file := rejectRepo(t)
 	s := terminalState(t)
-	s.root = root
+	s.ws.Root = root
 	a := s.activeAgent()
 	// No hooks: silence means only that nothing was printed, never that the
 	// turn ended, so the queue must never fire on its own.
@@ -138,7 +140,7 @@ func TestUnhookedAgentNeverAutoApplies(t *testing.T) {
 func TestExitedAgentReleasesTheQueue(t *testing.T) {
 	root, _, file := rejectRepo(t)
 	s := terminalState(t)
-	s.root = root
+	s.ws.Root = root
 	a := s.activeAgent()
 	a.attention.Hooked = false
 	a.exited = true
@@ -154,7 +156,7 @@ func TestExitedAgentReleasesTheQueue(t *testing.T) {
 func TestRejectionStillReachesTheAgentWhenTheRevertFails(t *testing.T) {
 	root, path, file := rejectRepo(t)
 	s := terminalState(t)
-	s.root = root
+	s.ws.Root = root
 	s.activeAgent().attention.Hooked = true
 	s.activeAgent().attention.Execution = attention.Completed
 
@@ -186,7 +188,7 @@ func TestRejectionStillReachesTheAgentWhenTheRevertFails(t *testing.T) {
 
 func TestStandaloneReviewAppliesImmediately(t *testing.T) {
 	root, path, file := rejectRepo(t)
-	s := &screenState{root: root}
+	s := &screenState{ws: repo.Git(root)}
 	if err := s.review.Reject(file, -1, 0, 0, ""); err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +206,7 @@ func TestStandaloneReviewAppliesImmediately(t *testing.T) {
 func TestMultipleAgentsAllMustBeAtRest(t *testing.T) {
 	root, _, file := rejectRepo(t)
 	s := terminalState(t)
-	s.root = root
+	s.ws.Root = root
 	first := s.activeAgent()
 	first.attention.Hooked = true
 	first.attention.Execution = attention.Completed
@@ -299,7 +301,7 @@ func (errShortWrite) Error() string { return "short write" }
 func TestRejectKeyAndTrayDriveTheWholeFlow(t *testing.T) {
 	root, path, file := rejectRepo(t)
 	s := terminalState(t)
-	s.root = root
+	s.ws.Root = root
 	s.review.Snapshot = diffview.Snapshot{Root: root, Files: []diffview.File{file}, Tree: "tree"}
 	s.review.Snapshot.Finish()
 	s.review.Indices = []int{0}
@@ -344,7 +346,7 @@ func TestRejectKeyAndTrayDriveTheWholeFlow(t *testing.T) {
 func TestTrayUndoKeepsTheChange(t *testing.T) {
 	root, path, file := rejectRepo(t)
 	s := terminalState(t)
-	s.root = root
+	s.ws.Root = root
 	if err := s.review.Reject(file, -1, 0, 0, ""); err != nil {
 		t.Fatal(err)
 	}
@@ -376,12 +378,12 @@ func editorState(t *testing.T) (*screenState, diffview.File) {
 		t.Fatal(err)
 	}
 	var file diffview.File
-	for _, f := range diffview.Collect(root).Files {
+	for _, f := range diffview.Collect(repo.Git(root)).Files {
 		if f.Scope == diffview.Unstaged {
 			file = f
 		}
 	}
-	s := &screenState{root: root}
+	s := &screenState{ws: repo.Git(root)}
 	s.sessionView = diffview.Snapshot{Root: root, Files: []diffview.File{file}, Tree: "tree"}
 	s.sessionView.Finish()
 	return s, file
@@ -419,7 +421,7 @@ func TestEditorAcceptAndRejectUseTheSameStateAsTheKeys(t *testing.T) {
 		t.Fatalf("reject acknowledged as %q", s.lastEditorRequest.Status)
 	}
 	// Queueing must not touch the working tree.
-	if got, _ := os.ReadFile(filepath.Join(s.root, "file.txt")); !strings.Contains(string(got), "TEN") {
+	if got, _ := os.ReadFile(filepath.Join(s.ws.Root, "file.txt")); !strings.Contains(string(got), "TEN") {
 		t.Fatalf("editor reject wrote to disk immediately: %s", got)
 	}
 
@@ -489,7 +491,7 @@ func TestPublishedReviewFilesCarryHunkStateAndPendingWait(t *testing.T) {
 		t.Fatalf("pending state without an agent: %+v", pending)
 	}
 	live := terminalState(t)
-	live.root, live.sessionView, live.review = s.root, s.sessionView, s.review
+	live.ws, live.sessionView, live.review = s.ws, s.sessionView, s.review
 	live.activeAgent().attention.Hooked = true
 	live.activeAgent().attention.Execution = attention.Running
 	if pending = live.pendingRejectionState(); pending == nil || pending.AppliesAt != "turn-end" || pending.Reason == "" {
@@ -509,7 +511,7 @@ func TestEditorPromptBuildsAnAgentDraftFromCapturedSource(t *testing.T) {
 	}
 	rejectGit(t, root, "add", ".")
 	rejectGit(t, root, "commit", "-m", "initial")
-	saved, err := session.Open(root, false, "")
+	saved, err := session.Open(repo.Git(root), false, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -518,8 +520,9 @@ func TestEditorPromptBuildsAnAgentDraftFromCapturedSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &screenState{root: root}
-	s.projectView = diffview.Project(root, tree)
+	s := &screenState{ws: repo.Git(root)}
+	s.review.UseWorkspace(s.ws)
+	s.projectView = diffview.Project(s.ws, tree)
 
 	request := editorRequest("prompt", "f.go", "")
 	request.Line, request.EndLine = 3, 3

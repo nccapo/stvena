@@ -11,6 +11,7 @@ import (
 	"github.com/nccapo/stvena/internal/attention"
 	"github.com/nccapo/stvena/internal/checks"
 	"github.com/nccapo/stvena/internal/diffview"
+	"github.com/nccapo/stvena/internal/repo"
 )
 
 var Scopes = []diffview.Scope{"", diffview.Staged, diffview.Unstaged, diffview.Untracked}
@@ -105,7 +106,16 @@ type State struct {
 	ConfirmAction, ConfirmDetail      string
 	savePath                          string
 	retained                          map[string]bool
+	ws                                repo.Workspace
 }
+
+// GitBacked reports whether this review runs against the user's own Git
+// repository. Branch comparison, staging and the staged/unstaged scopes exist
+// only there; a folder Stvena snapshots privately has no index and no HEAD.
+func (s *State) GitBacked() bool { return s.ws.Git() }
+
+// UseWorkspace names the project this review reads captured source from.
+func (s *State) UseWorkspace(ws repo.Workspace) { s.ws = ws }
 
 func (s *State) Current() *diffview.File {
 	if s.ProjectFolderSelected() {
@@ -575,6 +585,12 @@ func (s *State) Key(key string, visible int) {
 		}
 	case "tab":
 		if s.Source != "workspace" && s.Source != "" {
+			break
+		}
+		if !s.GitBacked() {
+			// Without an index every scope but "all" is empty, so cycling would
+			// only hide the changes the user is looking at.
+			s.Notice = "Staged and unstaged scopes need a Git repository"
 			break
 		}
 		s.Scope = (s.Scope + 1) % len(Scopes)

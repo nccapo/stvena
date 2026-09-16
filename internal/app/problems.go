@@ -45,7 +45,7 @@ func (s *screenState) loadProblem(attach bool, events chan<- any, stop <-chan st
 		return
 	}
 	p := s.review.Problems[s.review.ProblemIndex]
-	root, tree, command := s.root, s.review.CheckTree, s.review.CheckCommand
+	ws, tree, command := s.ws, s.review.CheckTree, s.review.CheckCommand
 	changed := s.review.CheckSourceChanged
 	s.problemID++
 	id := s.problemID
@@ -54,7 +54,7 @@ func (s *screenState) loadProblem(attach bool, events chan<- any, stop <-chan st
 	go func() {
 		defer s.workers.Done()
 		e := problemEvent{problem: p, id: id, changed: changed}
-		project := diffview.Project(root, tree)
+		project := diffview.Project(ws, tree)
 		e.err = project.Err
 		if e.err == nil {
 			var f diffview.File
@@ -74,7 +74,7 @@ func (s *screenState) loadProblem(attach bool, events chan<- any, stop <-chan st
 					selection.Update(project)
 					selection.FullFile = true
 					selection.PatchFocused = true
-					selection.Content = diffview.LoadContent(root, f)
+					selection.Content = diffview.LoadContent(ws, f)
 					selection.ContentKey = f.Key()
 					selection.Scroll = max(0, p.Line-4)
 					selection.Selecting = true

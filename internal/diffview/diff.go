@@ -14,6 +14,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/nccapo/stvena/internal/repo"
 )
 
 const (
@@ -62,37 +64,29 @@ type Snapshot struct {
 	Err                  error
 }
 
-func GitRoot(dir string) (string, error) {
-	out, err := gitOutput(dir, "rev-parse", "--show-toplevel")
-	if err != nil {
-		return "", fmt.Errorf("not inside a Git repository: %w", err)
-	}
-	return strings.TrimSuffix(string(out), "\n"), nil
-}
-
 // Collect retains separate index and worktree changes, including unborn HEADs.
-func Collect(root string) Snapshot {
-	s := Snapshot{Root: root, UpdatedAt: time.Now()}
-	if out, err := gitOutput(root, "symbolic-ref", "--quiet", "--short", "HEAD"); err == nil {
+func Collect(ws repo.Workspace) Snapshot {
+	s := Snapshot{Root: ws.Root, UpdatedAt: time.Now()}
+	if out, err := gitOutput(ws, "symbolic-ref", "--quiet", "--short", "HEAD"); err == nil {
 		s.Branch = strings.TrimSpace(string(out))
-	} else if out, err := gitOutput(root, "rev-parse", "--short", "HEAD"); err == nil {
+	} else if out, err := gitOutput(ws, "rev-parse", "--short", "HEAD"); err == nil {
 		s.Branch = strings.TrimSpace(string(out)) + " (detached)"
 	}
 	for _, scope := range []Scope{Staged, Unstaged} {
-		files, err := trackedFiles(root, scope)
+		files, err := trackedFiles(ws, scope)
 		s.Files = append(s.Files, files...)
 		if err != nil {
 			s.Err = errors.Join(s.Err, err)
 		}
 	}
-	names, err := gitOutput(root, "ls-files", "--others", "--exclude-standard", "-z")
+	names, err := gitOutput(ws, "ls-files", "--others", "--exclude-standard", "-z")
 	if err != nil {
 		s.Err = errors.Join(s.Err, err)
 	} else {
 		for i, name := range splitNUL(names) {
 			f := File{Path: name, Scope: Untracked, Status: "?"}
 			if i < maxUntrackedFiles {
-				readUntracked(root, &f)
+				readUntracked(ws, &f)
 			} else {
 				f.Truncated = true
 				f.Lines = []string{"Preview omitted: first 100 untracked files are loaded."}
@@ -113,9 +107,9 @@ func Collect(root string) Snapshot {
 	return s
 }
 
-func trackedFiles(root string, scope Scope) ([]File, error) { return collectDiff(root, scope, nil) }
+func trackedFiles(ws repo.Workspace, scope Scope) ([]File, error) { return collectDiff(ws, scope, nil) }
 
-func collectDiff(root string, scope Scope, revisions []string) ([]File, error) {
+func collectDiff(ws repo.Workspace, scope Scope, revisions []string) ([]File, error) {
 	args := []string{"diff", "--no-abbrev", "--no-ext-diff", "--no-textconv", "--no-color", "--no-relative", "--find-renames", "--ignore-submodules=none", "--raw", "--numstat", "-z", "--unified=3", "--src-prefix=a/", "--dst-prefix=b/", "--submodule=short"}
 	if scope == Staged && len(revisions) == 0 {
 		args = append(args, "--cached")
@@ -123,11 +117,11 @@ func collectDiff(root string, scope Scope, revisions []string) ([]File, error) {
 	args = append(args, revisions...)
 	// Obtain names, statistics, and patch ordering from the same Git invocation.
 	// Separate commands can disagree while an agent is adding/removing files.
-	out, err := gitOutput(root, append(append([]string{}, args...), "--patch", "--", ".")...)
+	out, err := gitOutput(ws, append(append([]string{}, args...), "--patch", "--", ".")...)
 	var previewErr error
 	if err != nil && strings.Contains(err.Error(), "16 MiB") {
 		previewErr = err
-		out, err = gitOutput(root, append(args, "--", ".")...)
+		out, err = gitOutput(ws, append(args, "--", ".")...)
 	}
 	if err != nil {
 		return nil, err
@@ -211,12 +205,15 @@ func collectDiff(root string, scope Scope, revisions []string) ([]File, error) {
 	return files, previewErr
 }
 
-func gitOutput(root string, args ...string) ([]byte, error) { return gitEnvOutput(root, nil, args...) }
+func gitOutput(ws repo.Workspace, args ...string) ([]byte, error) {
+	return gitEnvOutput(ws, nil, args...)
+}
 
-func gitEnvOutput(root string, env []string, args ...string) ([]byte, error) {
+func gitEnvOutput(ws repo.Workspace, env []string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", append([]string{"--no-optional-locks", "--literal-pathspecs", "-c", "diff.orderFile=" + os.DevNull, "-C", root}, args...)...)
+	prefix := append([]string{"--no-optional-locks", "--literal-pathspecs", "-c", "diff.orderFile=" + os.DevNull}, ws.Args()...)
+	cmd := exec.CommandContext(ctx, "git", append(prefix, args...)...)
 	// Refreshes are background work. Sharing the foreground terminal group
 	// makes terminals that display the active process keep switching titles.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -264,8 +261,8 @@ func splitNUL(data []byte) []string {
 	return strings.Split(strings.TrimSuffix(string(data), "\x00"), "\x00")
 }
 
-func readUntracked(root string, f *File) {
-	path := filepath.Join(root, filepath.FromSlash(f.Path))
+func readUntracked(ws repo.Workspace, f *File) {
+	path := filepath.Join(ws.Root, filepath.FromSlash(f.Path))
 	info, err := os.Lstat(path)
 	var data []byte
 	if err == nil && info.Mode()&os.ModeSymlink != 0 {

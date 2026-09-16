@@ -11,12 +11,14 @@ import (
 	"github.com/nccapo/stvena/internal/diffview"
 	"github.com/nccapo/stvena/internal/review"
 	"github.com/nccapo/stvena/internal/ui"
+
+	"github.com/nccapo/stvena/internal/repo"
 )
 
 func TestFooterRecoveryConfiguresGlobalShortcutAcrossProjects(t *testing.T) {
 	isolateHotkeys(t)
 	s := terminalState(t)
-	s.root = t.TempDir()
+	s.ws.Root = t.TempDir()
 	// No Ctrl-G or mouse: F6, arrows to Configuration, Enter, Enter, Ctrl-O.
 	input := "\x1b[17~"
 	for _, control := range ui.FooterControls {
@@ -33,7 +35,7 @@ func TestFooterRecoveryConfiguresGlobalShortcutAcrossProjects(t *testing.T) {
 		t.Fatalf("keyboard recovery did not configure pane shortcut: %s", s.review.Notice)
 	}
 	s.dispatch(context.Background(), make(chan any, 1), make(chan struct{}))
-	reopened := screenState{root: t.TempDir()}
+	reopened := screenState{ws: repo.Git(t.TempDir())}
 	reopened.loadPreferences()
 	if reopened.review.Binding("Ctrl-G") != "Ctrl-O" {
 		t.Fatal("global shortcut did not reach another project")

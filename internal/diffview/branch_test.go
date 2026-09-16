@@ -4,10 +4,13 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/nccapo/stvena/internal/repo"
 )
 
 func TestBranchChangesIncludesCommittedAndWorkingTreeChanges(t *testing.T) {
 	root := t.TempDir()
+	ws := repo.Git(root)
 	runGit(t, root, "init", "-q", "-b", "main")
 	runGit(t, root, "config", "user.name", "Stvena Test")
 	runGit(t, root, "config", "user.email", "test@example.invalid")
@@ -20,7 +23,7 @@ func TestBranchChangesIncludesCommittedAndWorkingTreeChanges(t *testing.T) {
 	writeFile(t, root, "working.txt", "uncommitted\n")
 
 	after := captureTree(t, root)
-	s := BranchChanges(root, after)
+	s := BranchChanges(ws, after)
 	if s.Err != nil {
 		t.Fatal(s.Err)
 	}
@@ -34,6 +37,7 @@ func TestBranchChangesIncludesCommittedAndWorkingTreeChanges(t *testing.T) {
 
 func TestBranchChangesTracksCommitWhenTreeStaysTheSame(t *testing.T) {
 	root := t.TempDir()
+	ws := repo.Git(root)
 	runGit(t, root, "init", "-q", "-b", "main")
 	runGit(t, root, "config", "user.name", "Stvena Test")
 	runGit(t, root, "config", "user.email", "test@example.invalid")
@@ -42,18 +46,19 @@ func TestBranchChangesTracksCommitWhenTreeStaysTheSame(t *testing.T) {
 	runGit(t, root, "commit", "-qm", "base")
 	writeFile(t, root, "file.txt", "working\n")
 	tree := captureTree(t, root)
-	beforeHead := BranchHead(root)
-	if BranchChanges(root, tree).FileCount != 1 {
+	beforeHead := BranchHead(ws)
+	if BranchChanges(ws, tree).FileCount != 1 {
 		t.Fatal("dirty default branch should compare against HEAD")
 	}
 	runGit(t, root, "commit", "-qam", "working")
-	if BranchHead(root) == beforeHead || BranchChanges(root, tree).FileCount != 0 {
+	if BranchHead(ws) == beforeHead || BranchChanges(ws, tree).FileCount != 0 {
 		t.Fatal("commit with the same tree did not refresh branch comparison")
 	}
 }
 
 func TestBranchChangesExplainsMissingDefaultBranch(t *testing.T) {
 	root := t.TempDir()
+	ws := repo.Git(root)
 	runGit(t, root, "init", "-q", "-b", "topic")
 	runGit(t, root, "config", "user.name", "Stvena Test")
 	runGit(t, root, "config", "user.email", "test@example.invalid")
@@ -62,7 +67,7 @@ func TestBranchChangesExplainsMissingDefaultBranch(t *testing.T) {
 	}
 	runGit(t, root, "add", ".")
 	runGit(t, root, "commit", "-qm", "first")
-	if got := BranchChanges(root, captureTree(t, root)); got.Err == nil {
+	if got := BranchChanges(ws, captureTree(t, root)); got.Err == nil {
 		t.Fatalf("missing default branch was accepted: %+v", got)
 	}
 }
@@ -71,7 +76,7 @@ func captureTree(t *testing.T, root string) string {
 	t.Helper()
 	runGit(t, root, "add", "-A")
 	defer runGit(t, root, "reset", "-q")
-	out, err := gitOutput(root, "write-tree")
+	out, err := gitOutput(repo.Git(root), "write-tree")
 	if err != nil {
 		t.Fatal(err)
 	}

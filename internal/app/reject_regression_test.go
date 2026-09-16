@@ -11,6 +11,8 @@ import (
 	"github.com/nccapo/stvena/internal/diffview"
 	"github.com/nccapo/stvena/internal/editor"
 	"github.com/nccapo/stvena/internal/review"
+
+	"github.com/nccapo/stvena/internal/repo"
 )
 
 // Queue decisions from successive captures while the agent keeps editing.
@@ -42,7 +44,7 @@ func TestRejectionQueuePreservesTargetsAcrossCaptures(t *testing.T) {
 			}
 			capture := func() diffview.File {
 				t.Helper()
-				snapshot := diffview.Collect(root)
+				snapshot := diffview.Collect(repo.Git(root))
 				if snapshot.Err != nil {
 					t.Fatal(snapshot.Err)
 				}
@@ -88,7 +90,7 @@ func TestRejectionQueuePreservesTargetsAcrossCaptures(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, applyErr := diffview.Revert(root, queue.RejectionTargets())
+			_, applyErr := diffview.Revert(repo.Git(root), queue.RejectionTargets())
 			if scenario.stale {
 				if applyErr == nil {
 					t.Fatal("stale batch succeeded")
@@ -173,7 +175,7 @@ func TestEditorWholeFileRejectionCanBeUndoneFromItsHunkLens(t *testing.T) {
 func TestEditorApplyRejectionsReportsFailure(t *testing.T) {
 	s, file := editorState(t)
 	s.applyEditorRequest(editorRequest("reject", file.Path, editor.HunkRef(review.HunkID(file, 0))))
-	if err := os.WriteFile(filepath.Join(s.root, file.Path), []byte("changed again\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(s.ws.Root, file.Path), []byte("changed again\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	s.applyEditorRequest(editorRequest("apply-rejections", "", ""))
@@ -195,7 +197,7 @@ func TestEditorRejectLensOnNewFileRemovesTheFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	rejectGit(t, root, "add", "new.txt")
-	snapshot := diffview.Collect(root)
+	snapshot := diffview.Collect(repo.Git(root))
 	if snapshot.Err != nil {
 		t.Fatal(snapshot.Err)
 	}
@@ -209,7 +211,7 @@ func TestEditorRejectLensOnNewFileRemovesTheFile(t *testing.T) {
 		t.Fatal("fixture needs added file")
 	}
 	file.Scope = diffview.Session
-	s := &screenState{root: root}
+	s := &screenState{ws: repo.Git(root)}
 	s.sessionView = diffview.Snapshot{Root: root, Tree: "tree", Files: []diffview.File{file}}
 	published, _ := s.reviewFilesForEditor()
 	if len(published[0].Hunks) != 1 {
@@ -231,8 +233,8 @@ func TestEditorRejectLensOnNewFileRemovesTheFile(t *testing.T) {
 
 func TestEditorApplyRejectionsPreservesStagedCopyWarning(t *testing.T) {
 	s, file := editorState(t)
-	rejectGit(t, s.root, "add", "file.txt")
-	path := filepath.Join(s.root, "file.txt")
+	rejectGit(t, s.ws.Root, "add", "file.txt")
+	path := filepath.Join(s.ws.Root, "file.txt")
 	content, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -245,7 +247,7 @@ func TestEditorApplyRejectionsPreservesStagedCopyWarning(t *testing.T) {
 	if s.lastEditorRequest.Status != "applied" || !strings.Contains(s.lastEditorRequest.Message, "staged copy still holds") {
 		t.Fatalf("staged-copy warning was lost: %+v", s.lastEditorRequest)
 	}
-	staged, err := exec.Command("git", "-C", s.root, "show", ":file.txt").Output()
+	staged, err := exec.Command("git", "-C", s.ws.Root, "show", ":file.txt").Output()
 	if err != nil {
 		t.Fatal(err)
 	}

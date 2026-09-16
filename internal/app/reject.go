@@ -66,7 +66,7 @@ func (s *screenState) applyRejections(force bool) bool {
 // applyRejectionBatch records the outcome and queues the handoff even if Git
 // refuses the batch. Its error lets the editor report the actual outcome.
 func (s *screenState) applyRejectionBatch() error {
-	notice, err := diffview.Revert(s.root, s.review.RejectionTargets())
+	notice, err := diffview.Revert(s.ws, s.review.RejectionTargets())
 	unreverted := ""
 	if err != nil {
 		unreverted = err.Error()

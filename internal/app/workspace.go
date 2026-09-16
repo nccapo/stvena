@@ -15,13 +15,14 @@ import (
 	"github.com/nccapo/stvena/internal/checks"
 	"github.com/nccapo/stvena/internal/diffview"
 	"github.com/nccapo/stvena/internal/editor"
+	"github.com/nccapo/stvena/internal/repo"
 	"github.com/nccapo/stvena/internal/session"
 	"github.com/nccapo/stvena/internal/ui"
 )
 
-func watchSnapshots(root string, rootErr error, saved *session.Session, events chan<- any, stop <-chan struct{}) {
+func watchSnapshots(ws repo.Workspace, rootErr error, saved *session.Session, events chan<- any, stop <-chan struct{}) {
 	if saved == nil {
-		watchDiff(root, rootErr, events, stop)
+		watchDiff(ws, rootErr, events, stop)
 		return
 	}
 	publisher, bridgeErr := editor.Open(saved)
@@ -35,14 +36,32 @@ func watchSnapshots(root string, rootErr error, saved *session.Session, events c
 	var project, branch diffview.Snapshot
 	branchKey := ""
 	observedTree := saved.LastTree
+	// The durable baseline of a project without Git never moves while Stvena
+	// runs, so resolve it once rather than every tick.
+	base := ""
+	if !ws.Git() {
+		base = saved.Base()
+	}
+	// Switching a live session from the private store to a real repository
+	// would have to re-point the baseline, every retained capture, the saved
+	// review and the editor descriptors at once, with an editor polling the old
+	// paths throughout. There is no correct half-way state, so say what changed
+	// and let the next launch pick it up.
+	transition, ticks := "", 0
 	refresh := func() {
 		capturedAt := time.Now()
 		tree, err := saved.Capture()
-		workspace := diffview.Collect(root)
+		if !ws.Git() && base == "" {
+			base = saved.Base()
+		}
+		workspace := diffview.Collect(ws)
+		if !ws.Git() {
+			workspace = diffview.CollectAll(ws, base, tree)
+		}
 		workspace.Label = "Workspace"
-		view := diffview.Snapshot{Root: root, Err: err, Label: "This session", UpdatedAt: time.Now()}
+		view := diffview.Snapshot{Root: ws.Root, Err: err, Label: "This session", UpdatedAt: time.Now()}
 		if err == nil {
-			view = diffview.CompareTrees(root, saved.Baseline, tree)
+			view = diffview.CompareTrees(ws, saved.Baseline, tree)
 			view.Branch = workspace.Branch
 			// A second capture detects writes during collection. Don't associate a live
 			// patch with unrelated immutable file contents.
@@ -54,15 +73,17 @@ func watchSnapshots(root string, rootErr error, saved *session.Session, events c
 			}
 		}
 		if err == nil && (project.Tree != tree || project.Err != nil) {
-			project = diffview.Project(root, tree)
+			project = diffview.Project(ws, tree)
 		}
-		head := diffview.BranchHead(root)
-		if err == nil && (branchKey != tree+"\x00"+head || branch.Err != nil) {
-			branch = diffview.BranchChanges(root, tree)
-			branchKey = tree + "\x00" + head
+		if ws.Git() {
+			head := diffview.BranchHead(ws)
+			if err == nil && (branchKey != tree+"\x00"+head || branch.Err != nil) {
+				branch = diffview.BranchChanges(ws, tree)
+				branchKey = tree + "\x00" + head
+			}
 		}
 		if err == nil && observedTree != "" && observedTree != tree {
-			delta := diffview.CompareTrees(root, observedTree, tree)
+			delta := diffview.CompareTrees(ws, observedTree, tree)
 			if delta.Err == nil {
 				batchErr := saved.RecordBatch(observedTree, tree, capturedAt, delta.FileCount, delta.Added, delta.Deleted)
 				if batchErr == nil {
@@ -76,6 +97,13 @@ func watchSnapshots(root string, rootErr error, saved *session.Session, events c
 					}
 				}
 				timelineReported = batchErr != nil
+			}
+		}
+		if notice := modeChange(ws, &ticks, &transition); notice != "" {
+			select {
+			case events <- operationEvent{message: notice}:
+			case <-stop:
+				return
 			}
 		}
 		// Attention events must compare against when the tree was captured, not
@@ -143,7 +171,7 @@ func (s *screenState) updateSource() {
 	if s.review.Source == "project" {
 		project := s.projectView
 		if project.Tree == "" && project.Err == nil {
-			project.Root = s.root
+			project.Root = s.root()
 			project.Err = fmt.Errorf("Waiting for project capture; if Git was initialized after launch, restart stvena")
 		}
 		s.review.Update(project)
@@ -292,6 +320,10 @@ func (s *screenState) dispatch(ctx context.Context, events chan<- any, stop <-ch
 			s.review.Notice = "No session baseline available"
 			break
 		}
+		if r == "4" && !s.ws.Git() {
+			s.review.Notice = "Branch changes need a Git repository · run git init, then restart stvena"
+			break
+		}
 		if r == "4" && s.session == nil {
 			s.review.Notice = "Branch changes need a captured Git workspace"
 			break
@@ -321,7 +353,7 @@ func (s *screenState) dispatch(ctx context.Context, events chan<- any, stop <-ch
 		}
 		index := min(max(0, s.review.TimelineIndex), len(s.review.Timeline)-1)
 		entry := s.review.Timeline[index]
-		batch := diffview.CompareTrees(s.root, entry.Before, entry.After)
+		batch := diffview.CompareTrees(s.ws, entry.Before, entry.After)
 		if batch.Err != nil {
 			s.review.Notice = batch.Err.Error()
 			break
@@ -357,7 +389,7 @@ func (s *screenState) dispatch(ctx context.Context, events chan<- any, stop <-ch
 		}
 		if r == "path" {
 			if f := s.review.Current(); f != nil {
-				value = filepath.Join(s.root, f.Path)
+				value = filepath.Join(s.root(), f.Path)
 			}
 		}
 		if r == "feedback" && len(s.review.Comments) > 0 {
@@ -374,7 +406,7 @@ func (s *screenState) dispatch(ctx context.Context, events chan<- any, stop <-ch
 		if f == nil {
 			break
 		}
-		path := filepath.Join(s.root, f.Path)
+		path := filepath.Join(s.root(), f.Path)
 		n := 1
 		lines := s.review.DisplayLines()
 		if s.review.Scroll < len(lines) {
@@ -396,7 +428,7 @@ func (s *screenState) dispatch(ctx context.Context, events chan<- any, stop <-ch
 			s.review.Notice = "Mark a version reviewed first"
 			break
 		}
-		compared, err := diffview.CompareFileVersions(s.root, previous.File, *f)
+		compared, err := diffview.CompareFileVersions(s.ws, previous.File, *f)
 		if err != nil {
 			s.review.Notice = err.Error()
 			break
@@ -434,7 +466,7 @@ func (s *screenState) dispatch(ctx context.Context, events chan<- any, stop <-ch
 			s.review.Notice = "Wait for a captured Git snapshot"
 			break
 		}
-		if err := session.Retain(s.root, tree); err != nil {
+		if err := session.Retain(s.ws, tree); err != nil {
 			s.review.Notice = err.Error()
 			break
 		}
@@ -451,7 +483,7 @@ func (s *screenState) dispatch(ctx context.Context, events chan<- any, stop <-ch
 			defer s.workers.Done()
 			checkCtx, cancel := context.WithTimeout(ctx, 15*time.Minute)
 			defer cancel()
-			result := checks.Run(checkCtx, s.root, tree, command)
+			result := checks.Run(checkCtx, s.ws, tree, command)
 			select {
 			case events <- checkEvent{result}:
 			case <-stop:
@@ -479,6 +511,10 @@ func (s *screenState) dispatch(ctx context.Context, events chan<- any, stop <-ch
 	case "stage-file", "stage-hunk":
 		f := s.review.Current()
 		if f == nil {
+			break
+		}
+		if !s.ws.Git() {
+			s.review.Notice = "Staging needs a Git repository · this project has no index to stage into"
 			break
 		}
 		if f.Scope == diffview.ProjectScope {
@@ -529,7 +565,7 @@ func (s *screenState) dispatch(ctx context.Context, events chan<- any, stop <-ch
 			s.workers.Add(1)
 			go func() {
 				defer s.workers.Done()
-				err := diffview.Stage(s.root, f, h)
+				err := diffview.Stage(s.ws, f, h)
 				select {
 				case events <- operationEvent{message: "Index updated · refreshing changes", err: err, git: true}:
 				case <-stop:
@@ -579,4 +615,27 @@ func openEditor(path string, line int) error {
 		}
 	}
 	return fmt.Errorf("install the code, cursor or zed shell command to open at a line; Y copies the path")
+}
+
+// modeChange watches for the project gaining or losing its Git repository
+// underneath a running session, and reports each once.
+func modeChange(ws repo.Workspace, ticks *int, reported *string) string {
+	*ticks++
+	if *ticks%10 != 0 {
+		return ""
+	}
+	if !ws.Git() {
+		// Only the reviewed directory itself counts. A git init somewhere above
+		// it does not change what this session is reviewing.
+		if found, err := repo.Root(ws.Root); err == nil && found == ws.Root && *reported != "git" {
+			*reported = "git"
+			return "Git repository detected · restart stvena to review against Git"
+		}
+		return ""
+	}
+	if _, err := os.Stat(ws.GitDir); os.IsNotExist(err) && *reported != "shadow" {
+		*reported = "shadow"
+		return "This project's Git directory is gone · restart stvena"
+	}
+	return ""
 }
