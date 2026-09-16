@@ -448,6 +448,10 @@ binary serves it:
 stvena editor-lsp --ide zed
 ```
 
+The language server ships in Stvena **0.4.0-preview.2** and later; an earlier
+binary has no `editor-lsp` subcommand and the editor will report that the server
+failed to start.
+
 In Zed, install the [Stvena Live extension](https://github.com/nccapo/zed-stvena)
 — it does nothing but launch that command — then run `stvena` in a terminal in
 the same project. Two Zed settings are off by default and turn on two of the

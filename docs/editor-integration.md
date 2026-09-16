@@ -204,8 +204,8 @@ Stvena writes nothing into the reviewed folder in either mode.
 
 ## Language server consumer
 
-`stvena editor-lsp [--ide NAME]` is a second consumer of everything above,
-speaking standard LSP on stdin/stdout (`internal/editorlsp`). It exists because
+`stvena editor-lsp [--ide NAME]`, added in 0.4.0-preview.2, is a second consumer
+of everything above, speaking standard LSP on stdin/stdout (`internal/editorlsp`). It exists because
 Zed's extension API cannot draw markers, register commands, or open files, and
 because any LSP-capable editor can then launch one binary instead of needing its
 own extension. The Zed wrapper that launches it lives in
