@@ -57,8 +57,10 @@ If Stvena saves you from the "open the IDE just for the diff" loop, consider
 
 ## Installation
 
-You need **Git**, an interactive terminal, and your chosen agent CLI installed
-and authenticated. Stvena uses Unix PTYs and process groups; macOS and Linux are
+You need the **git** command, an interactive terminal, and your chosen agent CLI
+installed and authenticated. Your project does not have to be a Git repository:
+a folder that was never `git init`ed is captured into Stvena's own directory
+instead, without writing anything into your source tree. Stvena uses Unix PTYs and process groups; macOS and Linux are
 the intended platforms. Native Windows is not supported.
 
 ### Homebrew (macOS and Linux)
@@ -140,7 +142,7 @@ go build -o bin/stvena ./cmd/stvena
 
 ## Quick start
 
-Launch Stvena **inside the Git project you want to work on**. You can pass an
+Launch Stvena **inside the project you want to work on**. You can pass an
 agent command and its arguments after `--`, or reopen a saved review:
 
 ```sh
@@ -384,8 +386,9 @@ requires its normal `/hooks` trust review before read reporting runs.
 
 Accept and reject, the per-block actions, Explorer badges, asking the agent
 about a selection, and IDE mode need Stvena **0.3.0-preview.1** or a current
-source build. Against an older binary the extension hides what that binary
-cannot do and keeps its 0.2.x read and edit following.
+source build. Reviewing a project that is not a Git repository needs
+**0.4.0-preview.1**. Against an older binary the extension hides what that
+binary cannot do and keeps its 0.2.x read and edit following.
 
 Install **Stvena Live** by **nccapo** from the VS Code Extensions view, or run:
 
@@ -395,16 +398,16 @@ code --install-extension nccapo.stvena-live
 
 Then install the compatible Stvena binary on macOS or Linux. The extension and
 terminal application are installed separately; the editor features require the
-[v0.3.0-preview.1 binary](https://github.com/nccapo/stvena/releases/tag/v0.3.0-preview.1)
+[v0.4.0-preview.1 binary](https://github.com/nccapo/stvena/releases/tag/v0.4.0-preview.1)
 or a current source build:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/nccapo/stvena/v0.3.0-preview.1/install.sh | \
-  STVENA_VERSION=v0.3.0-preview.1 sh
+curl -fsSL https://raw.githubusercontent.com/nccapo/stvena/v0.4.0-preview.1/install.sh | \
+  STVENA_VERSION=v0.4.0-preview.1 sh
 ```
 
-Open a trusted local Git workspace in VS Code, check that `stvena --version`
-reports `0.3.0-preview.1`, and run `stvena` or `stvena claude` in its integrated
+Open a trusted local workspace in VS Code, check that `stvena --version`
+reports `0.4.0-preview.1`, and run `stvena` or `stvena claude` in its integrated
 terminal. No Go or Node.js installation is needed. The default Stvena installer
 selects the stable release, which predates the editor bridge, so use the explicit
 preview version above.
@@ -422,8 +425,9 @@ If the view stays **Waiting**, check the binary version and workspace trust,
 and open **Stvena Live** in the Output panel for connection errors.
 
 The extension targets VS Code 1.85 or newer. It exchanges small, validated local
-descriptors through the repository's Git directory; it does not run commands,
-write source, add telemetry, or expose a network service.
+descriptors through the repository's Git directory, or, for a project without
+one, through Stvena's own per-project directory; it does not run commands, write
+source, add telemetry, or expose a network service.
 
 Updates are snapshots sampled roughly every 700 ms plus capture and extension
 polling time. They include saved edits from every workspace writer, without

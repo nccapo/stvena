@@ -9,13 +9,57 @@ Deleted files are not opened; automatic following skips unsaved buffers.
 Install instructions and product limits are in
 [extensions/vscode/README.md](../extensions/vscode/README.md).
 
+## Discovery
+
+A consumer resolves a workspace folder to the **descriptor directory**, which
+holds `stvena-live.json`, `stvena-review.json`, `stvena-request.json` and
+`stvena-ide.json`. Resolution has two steps, in this order.
+
+**1. Ask Git.** Run `git rev-parse --show-toplevel`, then resolve that root's
+Git directory with `git rev-parse --absolute-git-dir`. On success that directory
+is the descriptor directory, and resolution stops. Do not assume `.git` is a
+directory: linked worktrees use their own descriptors. This step is unchanged
+from the first version of this protocol, so a repository behaves exactly as it
+always has.
+
+**2. Ask Stvena's bridge registry.** A project that is not a Git repository is
+still reviewed: Stvena captures it into a private store and writes its
+descriptors beside that store, outside the user's source tree. It records where,
+in one JSON file per reviewed project, in `$STVENA_HOME/bridges/`
+(`~/.stvena/bridges/` unless `STVENA_HOME` is set). Read every `*.json` there:
+
+| Field | Meaning |
+| --- | --- |
+| `version` | Entry version, currently `1` |
+| `root` | Absolute worktree root Stvena is reviewing |
+| `realRoot` | `root` with symlinks resolved; an editor may hand over either spelling |
+| `mode` | `git` or `shadow` — whether the user's own repository backs this project |
+| `dir` | **The descriptor directory**, in both modes |
+| `gitDir` | Object store for `git cat-file blob`: the repository's Git directory, or Stvena's private one |
+| `updatedAt` | RFC 3339 UTC, refreshed while Stvena runs |
+
+Discard an entry unless `version` is 1, `mode` is one of the two names above,
+every path is absolute and NUL-free, and `updatedAt` parses. Then discard any
+entry whose `root` or `realRoot` is not the folder being resolved or one of its
+ancestors — that rule is what stops a stray file pointing an editor at an
+unrelated tree. Of the entries that remain, **the one with the longest
+`realRoot` wins**, which resolves both "this folder is a subdirectory of the
+reviewed root" and "one reviewed project sits inside another".
+
+A folder with no Git answer and no matching entry is simply not being reviewed.
+That is an ordinary state, not an error.
+
+Entries are written in both modes, so there is one fallback path rather than one
+that only runs where nobody tests it. They are not deleted when Stvena exits:
+the registry is a map, not a liveness signal, and liveness is the `active` flag
+and heartbeat below. An entry is a map of paths and nothing else — read `dir`
+and `gitDir` as locations, and never derive a command from anything in it.
+
 ## Local bridge, version 1
 
-Resolve a workspace folder with `git rev-parse --show-toplevel`, then resolve that
-root's Git directory with `git rev-parse --absolute-git-dir`. Read
-`stvena-live.json` in that directory. Do not assume `.git` is a directory: linked
-worktrees use their own descriptors. The writer replaces the file atomically
-with owner-only permissions; it does not add files to the user's source tree.
+Read `stvena-live.json` in the resolved descriptor directory. The writer replaces
+the file atomically with owner-only permissions; it does not add files to the
+user's source tree.
 
 The JSON contains:
 
@@ -82,7 +126,7 @@ that a specific agent made the change. Only the latest followed location is mark
 ## Review bridge and editor requests
 
 Review state uses a separate source-only `stvena-review.json` descriptor in the
-resolved Git directory. It contains no patch or source text; Stvena remains the
+resolved descriptor directory. It contains no patch or source text; Stvena remains the
 authoritative diff surface. The version 1 fields are:
 
 | Field | Meaning |
@@ -138,11 +182,34 @@ carry no location.
 text, and the draft is pasted rather than submitted: the user reads it and
 presses Enter.
 
+## Projects without a Git repository
+
+Everything in version 1 is identical in a project Stvena snapshots privately.
+The differences a consumer can see are these:
+
+- The registry entry's `mode` is `shadow`, and `dir` is Stvena's per-project
+  cache directory rather than a Git directory.
+- Blobs are read from `gitDir`, which is Stvena's private object store:
+  `git --git-dir <gitDir> cat-file blob <oid>`. Object IDs are still opaque and
+  may be 40 or 64 hex characters.
+- `focus.source` never reports `branch`, because branch comparison needs a
+  repository. A consumer keeps accepting the value: the descriptor shape does
+  not change, and the same consumer may be talking to a Git-backed project a
+  moment later.
+- The TUI's workspace view lists everything that changed since the version
+  Stvena first captured, with no staged/unstaged distinction, and staging is
+  unavailable. Neither is visible in these descriptors.
+
+Stvena writes nothing into the reviewed folder in either mode.
+
 ## Editor presence
 
 An extension announces itself by atomically replacing `stvena-ide.json` in the
-resolved Git directory with `version` 1, an `ide` name, its `extension` version,
-and an RFC 3339 `updatedAt` it refreshes at least every 30 seconds. Stvena
+resolved descriptor directory with `version` 1, an `ide` name, its `extension` version,
+and an RFC 3339 `updatedAt` it refreshes at least every 30 seconds. The language
+server writes `ide: "zed"` when Zed's extension launches it, or the name given
+to `--ide`, and removes its own descriptor on shutdown so the terminal leaves
+IDE mode at once rather than waiting for the heartbeat to age out. Stvena
 offers IDE mode only while that heartbeat is current: several editors report
 `TERM_PROGRAM=vscode` and the extension may not be installed in the one running
 Stvena, so the environment alone is not evidence of a connection. A missing,
@@ -171,11 +238,11 @@ acknowledged can replace it.
 ## Verification
 
 Run `go test -race ./...`, `go vet ./...`, `go build ./...`, and `npm test` from
-`extensions/vscode`. To exercise an actual editor host, use a disposable Git
-project and an isolated editor user-data/extensions directory, then launch:
+`extensions/vscode`. To exercise an actual editor host, use a disposable project
+and an isolated editor user-data/extensions directory, then launch:
 
 ```sh
-code /tmp/stvena-editor-project \
+STVENA_HOME=/tmp/stvena-editor-home code /tmp/stvena-editor-project \
   --user-data-dir /tmp/stvena-editor-profile \
   --extensions-dir /tmp/stvena-editor-extensions \
   --disable-workspace-trust \
@@ -183,7 +250,23 @@ code /tmp/stvena-editor-project \
   --extensionTestsPath=/absolute/path/to/stvena/extensions/vscode/test/host.js
 ```
 
-The host smoke test writes only to that disposable workspace. It checks automatic
+`STVENA_HOME` is required, and must be disposable: the suite writes a bridge
+entry there, and it is removed afterwards along with the rest of that directory.
+
+The suite runs the whole scenario **twice** — once against a Git repository it
+creates in the workspace, and once with no repository at all, resolved through a
+bridge entry pointing at a descriptor directory outside the workspace. Each pass
+uses its own session and its own fixture filenames, because an editor keeps a
+document for a file it has opened after the editor closes, and a stale buffer
+would otherwise answer an assertion about what the current pass published. A
+failure names the pass, so a failure that only happens without Git is not
+triaged as one of the known Git-mode flakes. `STVENA_HOST_MODE=git` or
+`=shadow` runs a single pass. Nothing in the scenario calls Git: the extension
+never dereferences a captured object ID, so the fixture holds its own contents
+and hands out synthetic ones.
+
+The host smoke test writes only to that disposable workspace and that disposable
+`STVENA_HOME`. It checks automatic
 source opening and line selection, reads without saved changes, TUI review focus,
 editor request descriptors, read expiry, pause/resume, addition/deletion handling,
 unsaved buffer preservation, and the absence of diff tabs. It also covers the
@@ -196,6 +279,11 @@ On macOS the `code` wrapper detaches and returns before the tests finish. Run
 `/Applications/Visual Studio Code.app/Contents/MacOS/Code` with the same
 arguments to see the result and the exit status. Use the editor's equivalent CLI to validate a VS Code
 fork. Passing the protocol tests alone does not establish editor compatibility.
+
+On 2026-09-15, the two-pass suite — Git repository and project without one —
+passed in stock VS Code 1.137.0 and in Antigravity IDE 2.5.5 (VS Code base
+1.107.0), both on Apple Silicon, against a source build of the extension. The Go
+race suite, vet and build checks, and the extension unit tests also passed.
 
 On 2026-09-10, the original saved-edit smoke test passed in stock VS Code
 1.137.0 (Apple Silicon) and Antigravity IDE (VS Code base 1.107.0) on macOS.

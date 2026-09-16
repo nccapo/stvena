@@ -47,8 +47,31 @@ stvena review --session ID     # Compare that baseline with today's workspace
 ```
 
 Standalone review opens fullscreen and continues observing the working copy.
-It does not resume an agent conversation. Starting outside Git still launches
-the CLI; the pane detects a later `git init`, with basic workspace review.
+It does not resume an agent conversation.
+
+## Projects that are not Git repositories
+
+Stvena reviews a folder that was never `git init`ed. It captures the working
+tree into a private store in its own cache directory and writes nothing into
+your project — no `.git`, no files of its own. Sessions, the session and Files
+views, the editor integration, and accepting or rejecting the agent's changes
+all work the same way.
+
+Two things need a repository and say so: **Branch (4)**, which compares against
+a branch that does not exist, and staging, which needs an index. **Workspace
+(2)** becomes one list of everything that changed since the version Stvena first
+captured in that folder, with no staged/unstaged split; that anchor is written
+once and does not move on its own.
+
+Because such a folder usually has no `.gitignore`, Stvena excludes the common
+dependency and build directories — `node_modules/`, `.venv/`, `target/`,
+`build/`, `dist/` and similar — so the first capture does not hash your whole
+toolchain. Edit `info/exclude` inside the store to change that; Stvena names the
+path when a capture is larger than it expects, and your own `.gitignore` is
+honored as well.
+
+Running `git init` later is picked up the next time you start stvena, and the
+review pane says so while the current session keeps going.
 
 ## Multiple agent terminals
 

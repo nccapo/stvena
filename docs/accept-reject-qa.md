@@ -3,7 +3,7 @@
 The original QA run tested commit `f09e989` (the 39-file accept/reject release)
 and reproduced the four defects recorded below. All four are now fixed in the
 local working tree; the original regression tests and the expanded safety cases
-pass. The extension version and lockfile are 0.3.1. No release has been published.
+pass. The extension version and lockfile are 0.4.0. No release has been published.
 
 ## Fixes
 
@@ -78,6 +78,31 @@ pass. The extension version and lockfile are 0.3.1. No release has been publishe
 Both hosts used isolated profiles, empty extension directories, disposable
 `stvena-editor-project` workspaces, and the source extension. These checks do
 not verify a packaged VSIX or a real Codex/Claude turn-hook session.
+
+## Projects without a Git repository, 2026-09-15
+
+The host suite now runs its whole scenario twice: once against a Git repository
+and once against the same folder with no repository, resolved through Stvena's
+bridge registry. Results, source extension, isolated profiles as above:
+
+- `go test -race ./...`, `go vet ./...`, `go build ./...`: passed.
+- `npm test` in `extensions/vscode`: 28 tests passed.
+- VS Code 1.137.0: `STVENA_HOST_TESTS_PASSED … git mode · shadow mode`, on two
+  consecutive runs in fresh profiles.
+- Antigravity IDE 2.5.5 (VS Code base 1.107.0): same, one run.
+
+One failure during development was worth recording, because it was the fixture
+and not the product: with both passes sharing filenames, an editor kept a
+document for a file the first pass had opened, and a stale buffer answered an
+assertion about what the second pass had just published. Each pass now uses its
+own session and its own filenames. An earlier attempt to delete the files
+between passes was worse: deleting a file an editor still holds a document for
+marks that document unsaved, and an unsaved buffer deliberately blocks automatic
+navigation.
+
+The intermittent Antigravity navigation failure recorded above was not seen in
+these runs. Failures now name the pass, so a failure that only happens without
+Git cannot be triaged as that known flake.
 
 ## Defects reproduced before the fixes
 
