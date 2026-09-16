@@ -55,6 +55,7 @@ test('discovers nested folders and worktrees; reads exact immutable blobs', asyn
   const oid = git('rev-parse', 'HEAD:nested/file.txt');
   const repo = await discover(path.join(root, 'nested'));
   assert.equal(await fs.realpath(repo.root), await fs.realpath(root));
+  assert.equal(repo.mode, 'git');
   assert.equal(await readState(repo), undefined);
   assert.equal(await readReviewState(repo), undefined);
   const value = state();
@@ -62,12 +63,12 @@ test('discovers nested folders and worktrees; reads exact immutable blobs', asyn
   await fs.writeFile(repo.statePath, JSON.stringify(value));
   assert.deepEqual(await readState(repo), value);
   await fs.writeFile(path.join(root, 'nested/file.txt'), 'after\n');
-  assert.equal(await readBlob(repo.root, oid), 'before\n');
-  assert.equal(await readBlob(repo.root, '0'.repeat(40)), '');
-  await assert.rejects(readBlob(repo.root, '--help'));
+  assert.equal(await readBlob(repo, oid), 'before\n');
+  assert.equal(await readBlob(repo, '0'.repeat(40)), '');
+  await assert.rejects(readBlob(repo, '--help'));
   await fs.writeFile(path.join(root, 'binary'), Buffer.from([0, 1]));
   const binary = git('hash-object', '-w', 'binary');
-  await assert.rejects(readBlob(repo.root, binary), /Binary/);
+  await assert.rejects(readBlob(repo, binary), /Binary/);
   git('worktree', 'add', '-qb', 'test-worktree', path.join(root, 'worktree'));
   const worktree = await discover(path.join(root, 'worktree'));
   assert.notEqual(worktree.statePath, repo.statePath);
@@ -149,4 +150,98 @@ test('requests are gated on what the running Stvena advertises', async t => {
     text: 'x'.repeat(4097) }), /too long/);
   await assert.rejects(() => writeRequest(repo, { action: 'reject', path: '../escape', line: 1, endLine: 1 }),
     /Invalid Stvena editor request/);
+});
+
+// registry builds an isolated Stvena home with the given bridge entries, so a
+// test never reads or writes the developer's real one.
+async function registry(t, entries) {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'stvena-home-'));
+  t.after(() => fs.rm(home, { recursive: true, force: true }));
+  const previous = process.env.STVENA_HOME;
+  process.env.STVENA_HOME = home;
+  t.after(() => { if (previous === undefined) delete process.env.STVENA_HOME; else process.env.STVENA_HOME = previous; });
+  await fs.mkdir(path.join(home, 'bridges'), { recursive: true });
+  for (const [name, entry] of Object.entries(entries)) {
+    const body = typeof entry === 'string' ? entry : JSON.stringify(entry);
+    await fs.writeFile(path.join(home, 'bridges', name), body);
+  }
+  return home;
+}
+
+function entry(root, dir, extra = {}) {
+  return { version: 1, root, realRoot: root, mode: 'shadow', dir, gitDir: path.join(dir, 'shadow.git'),
+    updatedAt: new Date().toISOString(), ...extra };
+}
+
+test('finds a project that is not a Git repository, and the folders inside it', async t => {
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'stvena-plain-')));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'stvena-cache-'));
+  t.after(() => Promise.all([fs.rm(root, { recursive: true, force: true }), fs.rm(dir, { recursive: true, force: true })]));
+  await registry(t, { 'a.json': entry(root, dir) });
+  await fs.mkdir(path.join(root, 'pkg', 'inner'), { recursive: true });
+  for (const folder of [root, path.join(root, 'pkg', 'inner')]) {
+    const repo = await discover(folder);
+    assert.equal(repo.mode, 'shadow');
+    assert.equal(repo.root, root);
+    assert.equal(repo.statePath, path.join(dir, 'stvena-live.json'));
+    assert.equal(repo.reviewPath, path.join(dir, 'stvena-review.json'));
+    assert.equal(repo.requestPath, path.join(dir, 'stvena-request.json'));
+    assert.equal(repo.presencePath, path.join(dir, 'stvena-ide.json'));
+  }
+});
+
+test('the nearest reviewed project owns a folder', async t => {
+  const outer = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'stvena-outer-')));
+  const inner = path.join(outer, 'service');
+  await fs.mkdir(path.join(inner, 'cmd'), { recursive: true });
+  t.after(() => fs.rm(outer, { recursive: true, force: true }));
+  await registry(t, { 'outer.json': entry(outer, '/tmp/outer-cache'), 'inner.json': entry(inner, '/tmp/inner-cache') });
+  const repo = await discover(path.join(inner, 'cmd'));
+  assert.equal(repo.root, inner);
+});
+
+test('Git answers before the registry, so a repository never changes behaviour', async t => {
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'stvena-both-')));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  execFileSync('git', ['-C', root, 'init', '-q']);
+  await registry(t, { 'a.json': entry(root, '/tmp/should-not-be-used') });
+  const repo = await discover(root);
+  assert.equal(repo.mode, 'git');
+  assert.ok(repo.statePath.includes('.git'));
+});
+
+test('unusable registry entries are ignored rather than followed or thrown', async t => {
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'stvena-bad-')));
+  const other = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'stvena-other-')));
+  t.after(() => Promise.all([fs.rm(root, { recursive: true, force: true }), fs.rm(other, { recursive: true, force: true })]));
+  await registry(t, {
+    'broken.json': '{',
+    'version.json': entry(root, '/tmp/cache', { version: 2 }),
+    'mode.json': entry(root, '/tmp/cache', { mode: 'other' }),
+    'relative.json': { version: 1, root, realRoot: root, mode: 'shadow', dir: 'cache', gitDir: 'cache', updatedAt: new Date().toISOString() },
+    'stamp.json': entry(root, '/tmp/cache', { updatedAt: 'not a date' }),
+    'elsewhere.json': entry(other, '/tmp/other-cache'),
+    'notes.txt': 'ignored',
+  });
+  assert.equal(await discover(root), undefined);
+});
+
+test('a folder Stvena has never reviewed is not an error', async t => {
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'stvena-none-')));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  await registry(t, {});
+  assert.equal(await discover(root), undefined);
+});
+
+test('reads captured blobs from a private snapshot store', async t => {
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'stvena-blob-')));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'stvena-blob-cache-'));
+  t.after(() => Promise.all([fs.rm(root, { recursive: true, force: true }), fs.rm(dir, { recursive: true, force: true })]));
+  const shadow = path.join(dir, 'shadow.git');
+  execFileSync('git', ['init', '--bare', '-q', shadow]);
+  const oid = execFileSync('git', ['--git-dir', shadow, 'hash-object', '-w', '--stdin'],
+    { input: 'captured\n', encoding: 'utf8' }).trim();
+  await registry(t, { 'a.json': entry(root, dir) });
+  const repo = await discover(root);
+  assert.equal(await readBlob(repo, oid), 'captured\n');
 });

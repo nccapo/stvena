@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.0
+
+- Follow agent edits and reviews in projects that are not Git repositories.
+  Stvena keeps the captures and the bridge descriptors in its own directory
+  outside your source tree, and the extension finds them through Stvena's
+  bridge registry when Git has nothing to say about the folder.
+- Resolve Git repositories exactly as before: Git is always asked first, and a
+  repository's descriptors stay in its Git directory.
+- Adopt a project's new descriptor location when it gains a Git repository,
+  instead of polling the old one until the window is reloaded.
+
 ## 0.3.1
 
 - Reject newly added files as a whole from their inline action, while validating

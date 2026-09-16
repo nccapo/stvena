@@ -103,10 +103,13 @@ function activate(context) {
     const editor = vscode.window.activeTextEditor;
     if (!editor || editor.document.uri.scheme !== 'file') throw new Error('Open a repository file first.');
     if (editor.document.isDirty) throw new Error('Save the file before sending its captured range to Stvena.');
-    const repo = repos.find(candidate => {
-      const relative = path.relative(candidate.root, editor.document.uri.fsPath);
-      return relative && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative) && bridge.isLive(candidate.review);
-    });
+    const owns = (root, file) => {
+      if (!root) return false;
+      const relative = path.relative(root, file);
+      return relative && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+    };
+    const repo = repos.find(candidate => bridge.isLive(candidate.review) &&
+      (owns(candidate.root, editor.document.uri.fsPath) || owns(candidate.realRoot, editor.document.uri.fsPath)));
     if (!repo) throw new Error('No active Stvena review owns this file.');
     const relative = path.relative(repo.root, editor.document.uri.fsPath).split(path.sep).join('/');
     const selection = editor.selection;
@@ -148,12 +151,14 @@ function activate(context) {
           if (folder.uri.scheme !== 'file') continue;
           try {
             const repo = await bridge.discover(folder.uri.fsPath);
-            found.set(repo.root, repos.find(old => old.root === repo.root) || repo);
+            // A folder Stvena is not reviewing is an ordinary workspace member.
+            // Keeping the existing entry preserves its polled state, but only
+            // while it still points at the same descriptors: a project that has
+            // since gained Git writes them somewhere else.
+            if (repo) found.set(repo.root, repos.find(old => old.root === repo.root && old.dir === repo.dir) || repo);
             errors.delete(folder.name);
           } catch (error) {
-            // Non-Git folders are ordinary workspace members.
-            if (!String(error.stderr).includes('not a git repository')) report(folder.name, error);
-            else errors.delete(folder.name);
+            report(folder.name, error);
           }
         }
         repos = [...found.values()];
