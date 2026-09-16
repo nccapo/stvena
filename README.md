@@ -434,10 +434,50 @@ polling time. They include saved edits from every workspace writer, without
 per-agent attribution or guaranteed intermediate history. Automatic navigation
 skips deleted files and files with unsaved editor changes.
 
-The first target is the VS Code extension API. Zed requires a separate
-integration. See the extension guide for installation, compatibility, and
-capture limits, or the [bridge protocol](docs/editor-integration.md) to build
-another local editor integration.
+See the extension guide for installation, compatibility, and capture limits, or
+the [bridge protocol](docs/editor-integration.md) to build another local editor
+integration.
+
+## Follow reads and edits in Zed and other LSP editors
+
+Zed's extension API cannot draw markers, register commands, or open files, so
+the same surface arrives over the Language Server Protocol instead. Stvena's own
+binary serves it:
+
+```sh
+stvena editor-lsp --ide zed
+```
+
+In Zed, install the [Stvena Live extension](https://github.com/nccapo/zed-stvena)
+— it does nothing but launch that command — then run `stvena` in a terminal in
+the same project. Two Zed settings are off by default and turn on two of the
+surfaces:
+
+```json
+{ "code_lens": "on", "inlay_hints": { "enabled": true } }
+```
+
+`code_lens` draws the ✓ Accept / ✗ Reject buttons and `inlay_hints` draws the
+marker labels; diagnostics, code actions and the status item need neither.
+
+| In the editor | How it arrives |
+| --- | --- |
+| The working file opens at the changed or read line, terminal keeps focus | `window/showDocument` — **not in Zed 1.19**, see below |
+| ✓ Accept · ✗ Reject above a change block | Code lens |
+| `✎ agent edit`, `👁 read (claude)`, `◆ reviewing` labels | Inlay hints |
+| Every unreviewed block listed, with an underline and a scrollbar mark | Information diagnostics |
+| Review in Stvena, Add to context, Ask the agent, Accept/Reject file, Apply rejections, Pause/Resume | Code actions (`source.stvena`) |
+| `following · 3 unreviewed · 1 rejection waiting for turn end` | `$/progress` |
+
+Zed 1.19 does not implement `window/showDocument`, so it does not open files for
+you yet: Stvena marks the changed and read lines where they are, lists them in
+the Project Diagnostics panel, and says so once in the language server log.
+Every other surface works, and navigation turns itself on in any editor that
+advertises the capability.
+
+Any editor that can launch a language server can use the same command; only Zed
+needs the extension wrapper. Rejecting with a reason has no LSP equivalent —
+reject from the editor and add the reason in the TUI, or use the TUI's **X**.
 
 ## Privacy and local data
 
