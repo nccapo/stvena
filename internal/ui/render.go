@@ -288,6 +288,11 @@ func controlRows(width int, diffFocused bool, state ...*review.State) []string {
 		if !diffFocused && !review.IsGlobalHotkey(FooterControls[i].Key) && FooterControls[i].Key != "F6" {
 			style = muted
 		}
+		// Branch comparison needs a repository. Showing it lit in a project
+		// without one offers something Stvena cannot do.
+		if FooterControls[i].Action == "4" && len(state) > 0 && state[0] != nil && !state[0].GitBacked() {
+			style = muted
+		}
 		if len(state) > 0 && state[0] != nil && state[0].FooterFocused && state[0].FooterIndex == i {
 			row += gap + "\x1b[7m" + bold + key + ":" + label + reset + headerBG
 		} else {

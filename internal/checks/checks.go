@@ -14,6 +14,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/nccapo/stvena/internal/repo"
 )
 
 type Result struct {
@@ -42,7 +44,7 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 	return n, err
 }
 
-func Run(ctx context.Context, root, tree, command string) (r Result) {
+func Run(ctx context.Context, ws repo.Workspace, tree, command string) (r Result) {
 	r = Result{Tree: tree, Command: command, Status: "Failed", ExitCode: -1, FinishedAt: time.Now()}
 
 	defer func() {
@@ -65,7 +67,7 @@ func Run(ctx context.Context, root, tree, command string) (r Result) {
 		return r
 	}
 	for _, args := range [][]string{{"read-tree", tree}, {"checkout-index", "--all", "--prefix=" + work + string(os.PathSeparator)}} {
-		cmd := exec.CommandContext(ctx, "git", append([]string{"-C", root}, args...)...)
+		cmd := exec.CommandContext(ctx, "git", append(ws.Args(), args...)...)
 		cmd.Env = append(os.Environ(), "GIT_INDEX_FILE="+index)
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 		cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }

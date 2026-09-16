@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/nccapo/stvena/internal/session"
+
+	"github.com/nccapo/stvena/internal/repo"
 )
 
 func TestPublishCapturedEdits(t *testing.T) {
@@ -33,7 +35,7 @@ func TestPublishCapturedEdits(t *testing.T) {
 	write("a.txt", "one\ntwo\nthree\nfour\nold\n")
 	write("delete.txt", "delete me\n")
 	write("rename.txt", "rename me\n")
-	saved, err := session.Open(root, false, "")
+	saved, err := session.Open(repo.Git(root), false, "")
 	if err != nil {
 		t.Fatal(err)
 	}

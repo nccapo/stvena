@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/nccapo/stvena/internal/repo"
 )
 
 // Content is the complete text on the selected side of a change, up to the
@@ -18,31 +20,40 @@ type Content struct {
 	Err         error
 }
 
-func LoadContent(root string, f File) Content {
+func LoadContent(ws repo.Workspace, f File) Content {
 	result := Content{Source: "working tree"}
+	if ws.Root == "" {
+		result.Err = fmt.Errorf("no project is open")
+		return result
+	}
 	var data []byte
 	var err error
 	switch {
 	case f.ContentRef != "":
 		result.Source = "captured working copy"
-		data, err = gitOutput(root, "show", f.ContentRef+":"+f.Path)
+		data, err = gitOutput(ws, "show", f.ContentRef+":"+f.Path)
 	case validOID(f.AfterOID):
 		result.Source = string(f.Scope) + " · captured version"
-		data, err = gitOutput(root, "cat-file", "blob", f.AfterOID)
+		data, err = gitOutput(ws, "cat-file", "blob", f.AfterOID)
 	case f.Status == "D" && validOID(f.BeforeOID):
 		result.Source, result.Old = "captured version · before deletion", true
-		data, err = gitOutput(root, "cat-file", "blob", f.BeforeOID)
+		data, err = gitOutput(ws, "cat-file", "blob", f.BeforeOID)
+	case !ws.Git():
+		// Every capture in a project without Git carries its own object IDs, so
+		// the cases below are unreachable; say so plainly if that ever changes.
+		result.Err = fmt.Errorf("this project has no index or HEAD to read %s from", f.Path)
+		return result
 	case f.Status == "D" && f.Scope == Staged:
 		result.Source, result.Old = "HEAD · before deletion", true
-		data, err = gitOutput(root, "show", "HEAD:"+f.Path)
+		data, err = gitOutput(ws, "show", "HEAD:"+f.Path)
 	case f.Status == "D" && f.Scope == Unstaged:
 		result.Source, result.Old = "index · before deletion", true
-		data, err = gitOutput(root, "show", ":0:"+f.Path)
+		data, err = gitOutput(ws, "show", ":0:"+f.Path)
 	case f.Scope == Staged && f.Status != "U":
 		result.Source = "index · staged version"
-		data, err = gitOutput(root, "show", ":0:"+f.Path)
+		data, err = gitOutput(ws, "show", ":0:"+f.Path)
 	default:
-		data, err = readContentFile(root, f.Path)
+		data, err = readContentFile(ws, f.Path)
 	}
 	if err != nil {
 		result.Err = err
@@ -55,11 +66,11 @@ func LoadContent(root string, f File) Content {
 	return result
 }
 
-func readContentFile(root, name string) ([]byte, error) {
+func readContentFile(ws repo.Workspace, name string) ([]byte, error) {
 	if filepath.IsAbs(name) || name == ".." || strings.HasPrefix(filepath.Clean(name), ".."+string(filepath.Separator)) {
 		return nil, fmt.Errorf("file path is outside repository")
 	}
-	path := filepath.Join(root, filepath.FromSlash(name))
+	path := filepath.Join(ws.Root, filepath.FromSlash(name))
 	info, err := os.Lstat(path)
 	if err != nil {
 		return nil, err

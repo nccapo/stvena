@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/nccapo/stvena/internal/diffview"
+
+	"github.com/nccapo/stvena/internal/repo"
 )
 
 func TestContextCollectsDistinctSlicesAndKeepsTheirVersions(t *testing.T) {
@@ -105,11 +107,12 @@ func TestEditorRangeUsesCapturedProjectContent(t *testing.T) {
 		t.Fatal(err)
 	}
 	tree := strings.TrimSpace(string(treeBytes))
-	project := diffview.Project(root, tree)
+	project := diffview.Project(repo.Git(root), tree)
 	if err := os.WriteFile(filepath.Join(root, "file.go"), []byte("different live source\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	var s State
+	s.UseWorkspace(repo.Git(root))
 	if err := s.AddCapturedRange(project, "file.go", 2, 3); err != nil {
 		t.Fatal(err)
 	}

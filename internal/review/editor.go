@@ -80,7 +80,7 @@ func (s *State) CapturedRangeMessage(snapshot diffview.Snapshot, path string, st
 		return "", fmt.Errorf("%s is not in the captured project", path)
 	}
 	f := snapshot.Files[index]
-	content := diffview.LoadContent(snapshot.Root, f)
+	content := diffview.LoadContent(s.ws, f)
 	if content.Err != nil {
 		return "", content.Err
 	}

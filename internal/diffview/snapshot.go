@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/nccapo/stvena/internal/repo"
 )
 
 func validOID(s string) bool {
@@ -40,24 +42,24 @@ func (s *Snapshot) Finish() {
 
 // CompareTrees includes committed and uncommitted changes relative to a saved
 // working tree. Neither tree is the user's staging index.
-func CompareTrees(root, before, after string) Snapshot {
-	s := Snapshot{Root: root, Tree: after, Label: "This session", UpdatedAt: time.Now()}
+func CompareTrees(ws repo.Workspace, before, after string) Snapshot {
+	s := Snapshot{Root: ws.Root, Tree: after, Label: "This session", UpdatedAt: time.Now()}
 	if !validOID(before) || !validOID(after) {
 		s.Err = fmt.Errorf("session snapshot unavailable")
 		return s
 	}
-	s.Files, s.Err = collectDiff(root, Session, []string{before, after})
+	s.Files, s.Err = collectDiff(ws, Session, []string{before, after})
 	s.Finish()
 	return s
 }
 
-func CompareFileVersions(root string, previous, current File) (File, error) {
+func CompareFileVersions(ws repo.Workspace, previous, current File) (File, error) {
 	resolve := func(f File) string {
 		if validOID(f.AfterOID) {
 			return f.AfterOID
 		}
 		if f.ContentRef != "" {
-			if out, err := gitOutput(root, "rev-parse", f.ContentRef+":"+f.Path); err == nil {
+			if out, err := gitOutput(ws, "rev-parse", f.ContentRef+":"+f.Path); err == nil {
 				return strings.TrimSpace(string(out))
 			}
 		}
@@ -67,7 +69,7 @@ func CompareFileVersions(root string, previous, current File) (File, error) {
 	if !validOID(before) || !validOID(after) {
 		return File{}, fmt.Errorf("comparison needs two existing captured file versions")
 	}
-	out, err := gitOutput(root, "diff", "--no-ext-diff", "--no-textconv", "--no-color", "--patch", "--unified=3", before, after)
+	out, err := gitOutput(ws, "diff", "--no-ext-diff", "--no-textconv", "--no-color", "--patch", "--unified=3", before, after)
 	if err != nil {
 		return File{}, err
 	}
@@ -109,4 +111,33 @@ func (s *Snapshot) FreezeContent(tree string) {
 		}
 	}
 	s.Finish()
+}
+
+// CollectAll is the workspace view of a folder that is not a Git repository.
+// There is no index and no HEAD to compare against, so it is one
+// undifferentiated list of everything that changed since the durable baseline
+// Stvena anchored the first time it saw the folder.
+//
+// The files keep the Unstaged scope rather than a scope of their own: review
+// state, hunk marks and rejections are all keyed by scope, so inventing one
+// here would silently discard a project's saved review the day its folder
+// becomes a repository.
+func CollectAll(ws repo.Workspace, base, after string) Snapshot {
+	s := Snapshot{Root: ws.Root, Tree: after, Label: "All changes", UpdatedAt: time.Now()}
+	if !validOID(base) || !validOID(after) {
+		s.Err = fmt.Errorf("workspace snapshot unavailable")
+		return s
+	}
+	s.Files, s.Err = collectDiff(ws, Unstaged, []string{base, after})
+	paths := make(map[string]bool)
+	for _, f := range s.Files {
+		paths[f.Path] = true
+		s.Added += f.Added
+		s.Deleted += f.Deleted
+		s.Approximate = s.Approximate || f.Truncated
+	}
+	s.Approximate = s.Approximate || s.Err != nil
+	s.FileCount = len(paths)
+	s.Finish()
+	return s
 }

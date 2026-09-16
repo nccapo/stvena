@@ -4,7 +4,6 @@ package session
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -16,13 +15,16 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/nccapo/stvena/internal/repo"
 )
 
 type Session struct {
 	ID, Root, Baseline, LastTree string
 	CreatedAt                    time.Time
-	Batches                      []Batch `json:",omitempty"`
-	Dir                          string  `json:"-"`
+	Batches                      []Batch        `json:",omitempty"`
+	Dir                          string         `json:"-"`
+	WS                           repo.Workspace `json:"-"`
 	index                        string
 	mu                           sync.Mutex
 }
@@ -38,22 +40,15 @@ type Batch struct {
 
 const maxBatches = 100
 
-func RepoDir(root string) (string, error) {
-	cache, err := os.UserCacheDir()
-	if err != nil {
-		return "", err
-	}
-	sum := sha256.Sum256([]byte(root))
-	dir := filepath.Join(cache, "stvena", hex.EncodeToString(sum[:12]))
-	return dir, os.MkdirAll(dir, 0700)
-}
+func RepoDir(root string) (string, error) { return repo.CacheDir(root) }
 
-func Open(root string, resume bool, id string) (*Session, error) {
+func Open(ws repo.Workspace, resume bool, id string) (*Session, error) {
+	root := ws.Root
 	dir, err := RepoDir(root)
 	if err != nil {
 		return nil, err
 	}
-	s := &Session{Root: root, Dir: dir}
+	s := &Session{Root: root, Dir: dir, WS: ws}
 	if resume {
 		name := "latest.json"
 		if id != "" {
@@ -67,7 +62,7 @@ func Open(root string, resume bool, id string) (*Session, error) {
 			if err = json.Unmarshal(data, s); err != nil {
 				return nil, err
 			}
-			s.Dir = dir
+			s.Dir, s.WS = dir, ws
 			if s.Root != root {
 				return nil, fmt.Errorf("session belongs to another repository")
 			}
@@ -75,11 +70,7 @@ func Open(root string, resume bool, id string) (*Session, error) {
 			return nil, readErr
 		}
 	}
-	gitDir, err := git(root, nil, "rev-parse", "--absolute-git-dir")
-	if err != nil {
-		return nil, err
-	}
-	index, err := os.CreateTemp(strings.TrimSpace(gitDir), "stvena-index-*")
+	index, err := os.CreateTemp(ws.GitDir, "stvena-index-*")
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +86,7 @@ func Open(root string, resume bool, id string) (*Session, error) {
 			return nil, captureErr
 		}
 		s.Baseline = tree
-		if _, err = git(root, nil, "update-ref", s.ref("baseline"), tree); err != nil {
+		if _, err = git(ws, nil, "update-ref", s.ref("baseline"), tree); err != nil {
 			s.Close()
 			return nil, err
 		}
@@ -104,8 +95,44 @@ func Open(root string, resume bool, id string) (*Session, error) {
 			return nil, err
 		}
 	}
+	if err = s.anchor(); err != nil {
+		s.Close()
+		return nil, err
+	}
 	return s, nil
 }
+
+// anchor writes the durable baseline a shadow workspace compares its workspace
+// view against. It is written once, the first time Stvena ever captures the
+// folder, and never moved automatically: it is what HEAD would be if the folder
+// were a repository, so it has to outlive this session.
+func (s *Session) anchor() error {
+	if s.WS.Git() {
+		return nil
+	}
+	if _, err := git(s.WS, nil, "rev-parse", "--verify", "--quiet", repo.BaseRef); err == nil {
+		return nil
+	}
+	tree := s.Baseline
+	if tree == "" {
+		tree = s.LastTree
+	}
+	if tree == "" {
+		return nil
+	}
+	_, err := git(s.WS, nil, "update-ref", repo.BaseRef, tree)
+	return err
+}
+
+// Base is the tree a shadow workspace's workspace view compares against.
+func (s *Session) Base() string {
+	out, err := git(s.WS, nil, "rev-parse", "--verify", repo.BaseRef+"^{tree}")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
 func (s *Session) ref(kind string) string { return "refs/stvena/sessions/" + s.ID + "/" + kind }
 
 func (s *Session) Capture() (string, error) {
@@ -113,9 +140,41 @@ func (s *Session) Capture() (string, error) {
 	defer s.mu.Unlock()
 	// Copy Git's atomically replaced index so staged ignored paths and conflict
 	// entries are included. The following add operates only on the private copy.
-	actual, err := git(s.Root, nil, "rev-parse", "--git-path", "index")
+	// A shadow workspace has no index but ours: reuse it in place, so add keeps
+	// its stat cache instead of re-hashing the whole tree every capture.
+	if err := s.inherit(); err != nil {
+		return "", err
+	}
+	env := []string{"GIT_INDEX_FILE=" + s.index}
+	if _, err := git(s.WS, env, "add", "--all", "--", "."); err != nil {
+		return "", err
+	}
+	tree, err := git(s.WS, env, "write-tree")
 	if err != nil {
 		return "", err
+	}
+	tree = strings.TrimSpace(tree)
+	if tree != s.LastTree {
+		if _, err = git(s.WS, nil, "update-ref", s.ref("latest"), tree); err != nil {
+			return "", err
+		}
+		s.LastTree = tree
+		if err = s.Save(); err != nil {
+			return "", err
+		}
+	}
+	return tree, nil
+}
+
+// inherit refreshes the private index from the user's own, so a capture sees
+// staged ignored paths and conflict entries.
+func (s *Session) inherit() error {
+	if !s.WS.Git() {
+		return nil
+	}
+	actual, err := git(s.WS, nil, "rev-parse", "--git-path", "index")
+	if err != nil {
+		return err
 	}
 	actual = strings.TrimSpace(actual)
 	if !filepath.IsAbs(actual) {
@@ -142,28 +201,7 @@ func (s *Session) Capture() (string, error) {
 		_ = os.Remove(s.index)
 		err = nil
 	}
-	if err != nil {
-		return "", err
-	}
-	env := []string{"GIT_INDEX_FILE=" + s.index}
-	if _, err = git(s.Root, env, "add", "--all", "--", "."); err != nil {
-		return "", err
-	}
-	tree, err := git(s.Root, env, "write-tree")
-	if err != nil {
-		return "", err
-	}
-	tree = strings.TrimSpace(tree)
-	if tree != s.LastTree {
-		if _, err = git(s.Root, nil, "update-ref", s.ref("latest"), tree); err != nil {
-			return "", err
-		}
-		s.LastTree = tree
-		if err = s.Save(); err != nil {
-			return "", err
-		}
-	}
-	return tree, nil
+	return err
 }
 func (s *Session) Save() error {
 	return AtomicJSON(filepath.Join(s.Dir, s.ID+".json"), s, filepath.Join(s.Dir, "latest.json"))
@@ -186,7 +224,7 @@ func (s *Session) RecordBatch(before, after string, observedAt time.Time, files,
 		id = s.Batches[len(s.Batches)-1].ID + 1
 	}
 	ref := s.ref(fmt.Sprintf("batches/%06d", id))
-	if _, err := git(s.Root, nil, "update-ref", ref, after); err != nil {
+	if _, err := git(s.WS, nil, "update-ref", ref, after); err != nil {
 		return err
 	}
 	previous := append([]Batch(nil), s.Batches...)
@@ -195,19 +233,19 @@ func (s *Session) RecordBatch(before, after string, observedAt time.Time, files,
 	if len(s.Batches) > maxBatches {
 		dropped = append(dropped, s.Batches[:len(s.Batches)-maxBatches]...)
 		s.Batches = append([]Batch(nil), s.Batches[len(s.Batches)-maxBatches:]...)
-		if _, err := git(s.Root, nil, "update-ref", s.ref("batch-base"), s.Batches[0].Before); err != nil {
+		if _, err := git(s.WS, nil, "update-ref", s.ref("batch-base"), s.Batches[0].Before); err != nil {
 			s.Batches = previous
-			_, _ = git(s.Root, nil, "update-ref", "-d", ref)
+			_, _ = git(s.WS, nil, "update-ref", "-d", ref)
 			return err
 		}
 	}
 	if err := s.Save(); err != nil {
 		s.Batches = previous
-		_, _ = git(s.Root, nil, "update-ref", "-d", ref)
+		_, _ = git(s.WS, nil, "update-ref", "-d", ref)
 		return err
 	}
 	for _, batch := range dropped {
-		_, _ = git(s.Root, nil, "update-ref", "-d", s.ref(fmt.Sprintf("batches/%06d", batch.ID)))
+		_, _ = git(s.WS, nil, "update-ref", "-d", s.ref(fmt.Sprintf("batches/%06d", batch.ID)))
 	}
 	return nil
 }
@@ -241,10 +279,11 @@ func AtomicJSON(path string, value any, aliases ...string) error {
 	}
 	return nil
 }
-func git(root string, env []string, args ...string) (string, error) {
+func git(ws repo.Workspace, env []string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", append([]string{"--no-optional-locks", "-C", root}, args...)...)
+	prefix := append([]string{"--no-optional-locks"}, ws.Args()...)
+	cmd := exec.CommandContext(ctx, "git", append(prefix, args...)...)
 	cmd.Env = append(os.Environ(), env...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
@@ -258,14 +297,14 @@ func git(root string, env []string, args ...string) (string, error) {
 
 // Retain protects a version referenced by review feedback or check results from
 // Git garbage collection after the live session advances.
-func Retain(root, tree string) error {
+func Retain(ws repo.Workspace, tree string) error {
 	if len(tree) != 40 && len(tree) != 64 {
 		return fmt.Errorf("invalid captured tree")
 	}
 	if _, err := hex.DecodeString(tree); err != nil {
 		return err
 	}
-	_, err := git(root, nil, "update-ref", "refs/stvena/reviews/"+tree, tree)
+	_, err := git(ws, nil, "update-ref", "refs/stvena/reviews/"+tree, tree)
 	return err
 }
 

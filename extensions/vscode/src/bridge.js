@@ -2,25 +2,104 @@
 
 const { execFile } = require('node:child_process');
 const fs = require('node:fs/promises');
+const os = require('node:os');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { promisify } = require('node:util');
 const exec = promisify(execFile);
 const oidPattern = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 
+function stvenaHome() {
+  return process.env.STVENA_HOME || path.join(os.homedir(), '.stvena');
+}
+
 async function git(root, ...args) {
-  const { stdout } = await exec('git', ['--no-optional-locks', '-C', root, ...args], {
+  return run(['-C', root, ...args]);
+}
+
+async function gitDir(dir, ...args) {
+  return run(['--git-dir', dir, ...args]);
+}
+
+async function run(args) {
+  const { stdout } = await exec('git', ['--no-optional-locks', ...args], {
     encoding: 'buffer', timeout: 5000, maxBuffer: 16 * 1024 * 1024, windowsHide: true,
   });
   return stdout;
 }
 
+// discover resolves a workspace folder to the directory Stvena writes its
+// descriptors in. Git answers first, so a repository behaves exactly as it
+// always has. A folder that is not a repository is looked up in Stvena's bridge
+// registry instead, where it records the private directory it snapshots into.
+// A folder Stvena has never reviewed simply has no bridge, which is not an error.
 async function discover(folder) {
-  const root = (await git(folder, 'rev-parse', '--show-toplevel')).toString().replace(/\n$/, '');
-  const gitDir = (await git(root, 'rev-parse', '--absolute-git-dir')).toString().replace(/\n$/, '');
-  return { root, statePath: path.join(gitDir, 'stvena-live.json'),
-    reviewPath: path.join(gitDir, 'stvena-review.json'), requestPath: path.join(gitDir, 'stvena-request.json'),
-    presencePath: path.join(gitDir, 'stvena-ide.json') };
+  try {
+    const root = (await git(folder, 'rev-parse', '--show-toplevel')).toString().replace(/\n$/, '');
+    const gitDir = (await git(root, 'rev-parse', '--absolute-git-dir')).toString().replace(/\n$/, '');
+    return describe({ root, realRoot: root, mode: 'git', dir: gitDir, gitDir });
+  } catch (error) {
+    // Git saying "not a repository" is an answer. Git failing to answer, or
+    // not being installed, leaves the registry as the only way to find a
+    // bridge, so both fall through rather than throwing.
+    if (!String(error.stderr).includes('not a git repository') && error.code !== 'ENOENT') throw error;
+  }
+  const entry = await fromRegistry(folder);
+  return entry && describe(entry);
+}
+
+function describe(entry) {
+  return { root: entry.root, realRoot: entry.realRoot, mode: entry.mode, dir: entry.dir, gitDir: entry.gitDir,
+    statePath: path.join(entry.dir, 'stvena-live.json'), reviewPath: path.join(entry.dir, 'stvena-review.json'),
+    requestPath: path.join(entry.dir, 'stvena-request.json'), presencePath: path.join(entry.dir, 'stvena-ide.json') };
+}
+
+// contains reports whether path lies in root, so an entry can only ever point
+// at a tree that actually holds the folder being resolved.
+function contains(root, target) {
+  if (!root || !target) return false;
+  const from = path.resolve(root), to = path.resolve(target);
+  return from === to || to.startsWith(from + path.sep);
+}
+
+function validEntry(entry) {
+  return !!entry && entry.version === 1 && ['git', 'shadow'].includes(entry.mode) &&
+    ['root', 'realRoot', 'dir', 'gitDir'].every(key => typeof entry[key] === 'string' &&
+      entry[key].length > 0 && !entry[key].includes('\0') && path.isAbsolute(entry[key])) &&
+    typeof entry.updatedAt === 'string' && Number.isFinite(Date.parse(entry.updatedAt));
+}
+
+// fromRegistry returns the entry for the project this folder belongs to. An
+// entry is a map of paths and nothing more: nothing here is ever executed.
+async function fromRegistry(folder) {
+  let names;
+  try {
+    names = await fs.readdir(path.join(stvenaHome(), 'bridges'));
+  } catch (error) {
+    if (error.code === 'ENOENT' || error.code === 'EACCES') return undefined;
+    throw error;
+  }
+  if (names.length > 1000) return undefined;
+  let target = folder;
+  try {
+    target = await fs.realpath(folder);
+  } catch { /* an unresolvable folder still matches on its literal path */ }
+  let best;
+  for (const name of names) {
+    if (!name.endsWith('.json')) continue;
+    let entry;
+    try {
+      const data = await fs.readFile(path.join(stvenaHome(), 'bridges', name), 'utf8');
+      if (data.length > 8 * 1024) continue;
+      entry = JSON.parse(data);
+    } catch { continue; }
+    if (!validEntry(entry)) continue;
+    if (!contains(entry.realRoot, target) && !contains(entry.root, folder)) continue;
+    // The nearest project wins, so one reviewed folder inside another resolves
+    // to the one that actually holds this file.
+    if (!best || entry.realRoot.length > best.realRoot.length) best = entry;
+  }
+  return best;
 }
 
 // announce tells Stvena an editor extension is actually watching this
@@ -212,10 +291,12 @@ async function writeRequest(repo, request) {
   return value;
 }
 
-async function readBlob(root, oid) {
+async function readBlob(repo, oid) {
   if (typeof oid !== 'string' || !oidPattern.test(oid)) throw new Error('Invalid captured object.');
   if (/^0+$/.test(oid)) return '';
-  const data = await git(root, 'cat-file', 'blob', oid);
+  // Captures live in the repository's own object store, or in the private one
+  // Stvena keeps for a project without Git; the workspace says which.
+  const data = await gitDir(repo.gitDir, 'cat-file', 'blob', oid);
   if (data.includes(0)) throw new Error('Binary content has no text preview.');
   return data.toString('utf8');
 }

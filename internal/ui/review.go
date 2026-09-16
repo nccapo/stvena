@@ -50,7 +50,13 @@ func renderReview(s *review.State, width, height int, focused bool) []string {
 	} else if s.Source == "project" {
 		add(bg + bold + fmt.Sprintf(" Project · %d %s", s.Snapshot.FileCount, noun) + reset + muted + "  /: find file")
 	} else {
-		add(bg + bold + fmt.Sprintf(" %d %s  %s+%d -%d", s.Snapshot.FileCount, noun, approx, s.Snapshot.Added, s.Snapshot.Deleted) + reset + bg + "  " + safeText(s.Snapshot.Branch))
+		// A project without Git has no branch to name. Say so, rather than
+		// leaving the space where a branch usually is silently empty.
+		where := safeText(s.Snapshot.Branch)
+		if where == "" && !s.GitBacked() {
+			where = muted + "no Git" + reset + bg
+		}
+		add(bg + bold + fmt.Sprintf(" %d %s  %s+%d -%d", s.Snapshot.FileCount, noun, approx, s.Snapshot.Added, s.Snapshot.Deleted) + reset + bg + "  " + where)
 	}
 	scope := "all"
 	if s.Scope != 0 {

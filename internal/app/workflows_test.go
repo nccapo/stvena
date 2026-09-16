@@ -15,6 +15,8 @@ import (
 	"github.com/nccapo/stvena/internal/diffview"
 	"github.com/nccapo/stvena/internal/session"
 	"github.com/nccapo/stvena/internal/ui"
+
+	"github.com/nccapo/stvena/internal/repo"
 )
 
 func workflowProject(t *testing.T) (string, string) {
@@ -29,7 +31,7 @@ func workflowProject(t *testing.T) (string, string) {
 			t.Fatal(err)
 		}
 	}
-	saved, err := session.Open(root, false, "")
+	saved, err := session.Open(repo.Git(root), false, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,8 +46,8 @@ func workflowProject(t *testing.T) (string, string) {
 func TestProjectToMultiFileContextToAgentDraft(t *testing.T) {
 	root, tree := workflowProject(t)
 	var child bytes.Buffer
-	s := screenState{root: root, layout: ui.NewLayout(160, 40), ratio: 58, diffFocused: true, agentName: "claude", agentInput: &child, bracketedPaste: true}
-	s.projectView = diffview.Project(root, tree)
+	s := screenState{ws: repo.Git(root), layout: ui.NewLayout(160, 40), ratio: 58, diffFocused: true, agentName: "claude", agentInput: &child, bracketedPaste: true}
+	s.projectView = diffview.Project(repo.Git(root), tree)
 	s.review.LiveTree = tree
 	for _, f := range s.projectView.Files {
 		if f.Path == "ignored.txt" {
@@ -74,7 +76,7 @@ func TestProjectToMultiFileContextToAgentDraft(t *testing.T) {
 		if f == nil || f.Path != name {
 			t.Fatalf("quick open %s: %+v", name, f)
 		}
-		s.review.Content = diffview.LoadContent(root, *f)
+		s.review.Content = diffview.LoadContent(repo.Git(root), *f)
 		s.review.ContentKey = f.Key()
 		s.review.ContentLoading = false
 		s.review.SelectWithMouse(1, 0, false)
@@ -130,9 +132,9 @@ func awaitProblem(t *testing.T, events <-chan any) problemEvent {
 
 func TestProblemsOpenTestedSourceAndCollectFailure(t *testing.T) {
 	root, tree := workflowProject(t)
-	s := screenState{root: root, projectView: diffview.Project(root, tree)}
+	s := screenState{ws: repo.Git(root), projectView: diffview.Project(repo.Git(root), tree)}
 	s.review.LiveTree = tree
-	result := checks.Run(context.Background(), root, tree, "printf 'a.go:2:3: expected alpha to pass\\n'; exit 1")
+	result := checks.Run(context.Background(), repo.Git(root), tree, "printf 'a.go:2:3: expected alpha to pass\\n'; exit 1")
 	if len(result.Problems) != 1 {
 		t.Fatalf("check locations: %+v", result)
 	}
@@ -181,4 +183,62 @@ func TestProblemPathResolutionRejectsAmbiguousBasenames(t *testing.T) {
 	if f, err := resolveProblem(files, "two/file.go"); err != nil || f.Path != "two/file.go" {
 		t.Fatal("exact path did not resolve")
 	}
+}
+
+// gitProject is a captured project inside a real Git repository.
+func gitProject(t *testing.T) (repo.Workspace, string) {
+	t.Helper()
+	root, tree := workflowProject(t)
+	ws, _, err := repo.Discover(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ws, tree
+}
+
+// shadowProject is the same project in a folder that was never initialized, so
+// Stvena reviews it through its private snapshot store. The home and cache
+// directories are redirected, because that store and the bridge registry live
+// in them.
+func shadowProject(t *testing.T) (repo.Workspace, string) {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, "cache"))
+	t.Setenv("STVENA_HOME", filepath.Join(home, "stvena"))
+	root := t.TempDir()
+	for name, body := range map[string]string{"a.go": "package main\nfunc alpha() {}\n", "b.go": "package main\nfunc beta() {}\n", ".gitignore": "ignored.txt\n", "ignored.txt": "private\n"} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ws, _, err := repo.Discover(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ws.Git() {
+		t.Fatalf("%s was treated as a Git repository", root)
+	}
+	saved, err := session.Open(ws, false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer saved.Close()
+	tree, err := saved.Capture()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ws, tree
+}
+
+// projectModes is what every workspace-shaped behaviour must hold for: a Git
+// repository and a folder Stvena snapshots privately.
+func projectModes() []struct {
+	name  string
+	build func(*testing.T) (repo.Workspace, string)
+} {
+	return []struct {
+		name  string
+		build func(*testing.T) (repo.Workspace, string)
+	}{{"git", gitProject}, {"shadow", shadowProject}}
 }

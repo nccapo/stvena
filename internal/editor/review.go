@@ -1,13 +1,11 @@
 package editor
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -125,10 +123,7 @@ type ReviewPublisher struct {
 }
 
 func OpenReview(saved *session.Session) (*ReviewPublisher, error) {
-	dir, err := repositoryGitDir(saved.Root)
-	if err != nil {
-		return nil, err
-	}
+	dir := saved.WS.DescriptorDir()
 	return &ReviewPublisher{path: filepath.Join(dir, "stvena-review.json"), session: saved.ID,
 		state: ReviewState{Version: 1, Session: saved.ID, Active: true}}, nil
 }
@@ -215,10 +210,7 @@ type RequestReader struct {
 }
 
 func OpenRequests(saved *session.Session) (*RequestReader, error) {
-	dir, err := repositoryGitDir(saved.Root)
-	if err != nil {
-		return nil, err
-	}
+	dir := saved.WS.DescriptorDir()
 	reader := &RequestReader{path: filepath.Join(dir, "stvena-request.json"), session: saved.ID}
 	// A saved session can be reopened. Never replay a request left for the
 	// previous process; only descriptors replaced after this reader opens count.
@@ -281,14 +273,4 @@ func validRequestPath(path string) bool {
 	}
 	clean := filepath.Clean(filepath.FromSlash(path))
 	return clean != "." && clean != ".." && !strings.HasPrefix(clean, ".."+string(filepath.Separator))
-}
-
-func repositoryGitDir(root string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "git", "-C", root, "rev-parse", "--absolute-git-dir").Output()
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(out)), nil
 }

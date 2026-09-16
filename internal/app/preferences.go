@@ -35,7 +35,7 @@ func hotkeysPath() (string, error) {
 
 func (s *screenState) loadPreferences() {
 	var p preferences
-	if dir, err := session.RepoDir(s.root); err == nil {
+	if dir, err := session.RepoDir(s.root()); err == nil {
 		if data, err := os.ReadFile(filepath.Join(dir, "layout.json")); err == nil && json.Unmarshal(data, &p) == nil {
 			if p.Ratio >= 25 && p.Ratio <= 75 {
 				s.ratio = p.Ratio
@@ -112,7 +112,7 @@ func (s *screenState) savePreferences() error {
 	if err := s.saveHotkeys(); err != nil {
 		return err
 	}
-	dir, err := session.RepoDir(s.root)
+	dir, err := session.RepoDir(s.root())
 	if err != nil {
 		return err
 	}

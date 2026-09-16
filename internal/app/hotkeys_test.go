@@ -13,6 +13,8 @@ import (
 	"github.com/nccapo/stvena/internal/review"
 	"github.com/nccapo/stvena/internal/session"
 	"github.com/nccapo/stvena/internal/ui"
+
+	"github.com/nccapo/stvena/internal/repo"
 )
 
 func isolateHotkeys(t *testing.T) string {
@@ -26,7 +28,7 @@ func isolateHotkeys(t *testing.T) string {
 
 func TestConfigureHotkeyWithMouseAndPersist(t *testing.T) {
 	isolateHotkeys(t)
-	s := screenState{root: t.TempDir(), ratio: 58, diffFocused: true}
+	s := screenState{ws: repo.Git(t.TempDir()), ratio: 58, diffFocused: true}
 	s.relayout(140, 40)
 	var child bytes.Buffer
 	// Click the persistent ? control, then the first action in the editor.
@@ -57,7 +59,7 @@ func TestConfigureHotkeyWithMouseAndPersist(t *testing.T) {
 	if s.review.Binding("a") != "r" || !strings.Contains(s.review.Notice, "saved") {
 		t.Fatalf("binding was not saved: %s", s.review.Notice)
 	}
-	reopened := screenState{root: s.root, layout: ui.NewLayout(140, 40)}
+	reopened := screenState{ws: repo.Git(s.ws.Root), layout: ui.NewLayout(140, 40)}
 	reopened.loadPreferences()
 	if reopened.review.Binding("a") != "r" || reopened.ratio != 58 {
 		t.Fatal("preferences did not restore the custom binding and layout")
@@ -75,8 +77,8 @@ func TestConfigureHotkeyWithMouseAndPersist(t *testing.T) {
 
 func TestHotkeyPreferencesRejectConflictsAndReadOldLayout(t *testing.T) {
 	isolateHotkeys(t)
-	s := screenState{root: t.TempDir(), layout: ui.NewLayout(140, 40)}
-	dir, err := session.RepoDir(s.root)
+	s := screenState{ws: repo.Git(t.TempDir()), layout: ui.NewLayout(140, 40)}
+	dir, err := session.RepoDir(s.ws.Root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +99,7 @@ func TestHotkeyPreferencesRejectConflictsAndReadOldLayout(t *testing.T) {
 
 func TestHotkeySaveFailureKeepsBindingAndReportsError(t *testing.T) {
 	path := isolateHotkeys(t)
-	s := screenState{root: t.TempDir(), ratio: 58, review: review.State{Help: true}}
+	s := screenState{ws: repo.Git(t.TempDir()), ratio: 58, review: review.State{Help: true}}
 	s.relayout(140, 40)
 	if err := os.MkdirAll(path, 0700); err != nil {
 		t.Fatal(err)
@@ -115,7 +117,7 @@ func TestConfiguredHotkeysSurviveCtrlQAndReopen(t *testing.T) {
 	for _, mode := range []string{"immediate", "review", "agent", "paste", "editing"} {
 		t.Run(mode, func(t *testing.T) {
 			isolateHotkeys(t)
-			s := &screenState{root: t.TempDir(), ratio: 58, diffFocused: true}
+			s := &screenState{ws: repo.Git(t.TempDir()), ratio: 58, diffFocused: true}
 			s.relayout(140, 40)
 			var child bytes.Buffer
 			events, stop := make(chan any, 1), make(chan struct{})
@@ -144,7 +146,7 @@ func TestConfiguredHotkeysSurviveCtrlQAndReopen(t *testing.T) {
 			// Verify the quit dispatch saved even the immediate edit before Run's
 			// deferred save, then exercise that save and a second quit/reopen.
 			for restart := 0; restart < 2; restart++ {
-				reopened := &screenState{root: s.root, layout: ui.NewLayout(140, 40), diffFocused: true}
+				reopened := &screenState{ws: repo.Git(s.ws.Root), layout: ui.NewLayout(140, 40), diffFocused: true}
 				reopened.loadPreferences()
 				if !maps.Equal(reopened.review.Hotkeys, want) {
 					t.Fatalf("restart %d: hotkeys = %v, want %v", restart, reopened.review.Hotkeys, want)
@@ -171,7 +173,7 @@ func TestConfiguredHotkeysSurviveCtrlQAndReopen(t *testing.T) {
 
 func TestHotkeysSharedAcrossProjectsWithoutSharingLayout(t *testing.T) {
 	path := isolateHotkeys(t)
-	first := screenState{root: t.TempDir(), ratio: 65}
+	first := screenState{ws: repo.Git(t.TempDir()), ratio: 65}
 	first.review.Wrap = true
 	first.review.SideBySide = true
 	if err := first.review.SetHotkey("a", "r"); err != nil {
@@ -180,7 +182,7 @@ func TestHotkeysSharedAcrossProjectsWithoutSharingLayout(t *testing.T) {
 	if err := first.savePreferences(); err != nil {
 		t.Fatal(err)
 	}
-	second := screenState{root: t.TempDir(), ratio: 58}
+	second := screenState{ws: repo.Git(t.TempDir()), ratio: 58}
 	second.loadPreferences() // This repository has never had a layout file.
 	if second.review.Binding("a") != "r" || second.ratio != 58 || second.review.Wrap || second.review.SideBySide {
 		t.Fatalf("shared hotkeys or independent layout failed: binding=%q ratio=%d wrap=%t sideBySide=%t", second.review.Binding("a"), second.ratio, second.review.Wrap, second.review.SideBySide)
@@ -195,7 +197,7 @@ func TestHotkeysSharedAcrossProjectsWithoutSharingLayout(t *testing.T) {
 	if err := first.savePreferences(); err != nil {
 		t.Fatal(err)
 	}
-	reopened := screenState{root: first.root}
+	reopened := screenState{ws: first.ws}
 	reopened.loadPreferences()
 	if reopened.review.Binding("a") != "z" || reopened.ratio != 65 || !reopened.review.Wrap || !reopened.review.SideBySide {
 		t.Fatal("stale window overwrote global settings or lost project layout")
@@ -207,10 +209,10 @@ func TestHotkeysSharedAcrossProjectsWithoutSharingLayout(t *testing.T) {
 
 func TestLegacyHotkeysMigrateOnceAndResetGlobally(t *testing.T) {
 	isolateHotkeys(t)
-	first := screenState{root: t.TempDir()}
-	second := screenState{root: t.TempDir()}
+	first := screenState{ws: repo.Git(t.TempDir())}
+	second := screenState{ws: repo.Git(t.TempDir())}
 	for _, s := range []*screenState{&first, &second} {
-		dir, err := session.RepoDir(s.root)
+		dir, err := session.RepoDir(s.ws.Root)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -219,7 +221,7 @@ func TestLegacyHotkeysMigrateOnceAndResetGlobally(t *testing.T) {
 		}
 	}
 	first.loadPreferences()
-	fresh := screenState{root: t.TempDir()}
+	fresh := screenState{ws: repo.Git(t.TempDir())}
 	fresh.loadPreferences()
 	if first.review.Binding("a") != "r" || fresh.review.Binding("a") != "r" {
 		t.Fatal("legacy customization was not migrated for other projects")
@@ -237,8 +239,8 @@ func TestLegacyHotkeysMigrateOnceAndResetGlobally(t *testing.T) {
 
 func TestInvalidGlobalHotkeysKeepLayoutAndDoNotFallBackToLegacy(t *testing.T) {
 	path := isolateHotkeys(t)
-	s := screenState{root: t.TempDir()}
-	dir, err := session.RepoDir(s.root)
+	s := screenState{ws: repo.Git(t.TempDir())}
+	dir, err := session.RepoDir(s.ws.Root)
 	if err != nil {
 		t.Fatal(err)
 	}

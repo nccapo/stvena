@@ -11,6 +11,8 @@ import (
 
 	"github.com/nccapo/stvena/internal/diffview"
 	"github.com/nccapo/stvena/internal/session"
+
+	"github.com/nccapo/stvena/internal/repo"
 )
 
 func git(t *testing.T, root string, args ...string) string {
@@ -41,7 +43,7 @@ func TestSessionSeparatesExistingEditsAndSurvivesCommit(t *testing.T) {
 	write(t, root, "new.txt", "existing new\n")
 	indexPath := filepath.Join(root, ".git", "index")
 	before, _ := os.ReadFile(indexPath)
-	s, err := session.Open(root, false, "")
+	s, err := session.Open(repo.Git(root), false, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +56,7 @@ func TestSessionSeparatesExistingEditsAndSurvivesCommit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	initial := diffview.CompareTrees(root, s.Baseline, tree)
+	initial := diffview.CompareTrees(repo.Git(root), s.Baseline, tree)
 	if initial.Err != nil || len(initial.Files) != 0 {
 		t.Fatalf("preexisting edits leaked: %+v", initial)
 	}
@@ -67,7 +69,7 @@ func TestSessionSeparatesExistingEditsAndSurvivesCommit(t *testing.T) {
 	if !bytes.Equal(before, after) {
 		t.Fatal("refresh changed index")
 	}
-	changed := diffview.CompareTrees(root, s.Baseline, tree)
+	changed := diffview.CompareTrees(repo.Git(root), s.Baseline, tree)
 	if changed.Err != nil || len(changed.Files) != 1 {
 		t.Fatalf("session diff: %+v", changed)
 	}
@@ -75,9 +77,9 @@ func TestSessionSeparatesExistingEditsAndSurvivesCommit(t *testing.T) {
 	if !strings.Contains(patch, "-preexisting") || !strings.Contains(patch, "+agent change") {
 		t.Fatal(patch)
 	}
-	frozen := diffview.LoadContent(root, changed.Files[0])
+	frozen := diffview.LoadContent(repo.Git(root), changed.Files[0])
 	write(t, root, "file.txt", "later\n")
-	if c := diffview.LoadContent(root, changed.Files[0]); strings.Join(c.Lines, "") == "later" || c.Err != nil {
+	if c := diffview.LoadContent(repo.Git(root), changed.Files[0]); strings.Join(c.Lines, "") == "later" || c.Err != nil {
 		t.Fatalf("snapshot changed: %+v", c)
 	}
 	if strings.Join(frozen.Lines, "") != "agent change" {
@@ -89,11 +91,11 @@ func TestSessionSeparatesExistingEditsAndSurvivesCommit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	post := diffview.CompareTrees(root, s.Baseline, tree)
+	post := diffview.CompareTrees(repo.Git(root), s.Baseline, tree)
 	if len(post.Files) != 1 {
 		t.Fatalf("agent commit hid session diff: %+v", post)
 	}
-	reopened, err := session.Open(root, true, s.ID)
+	reopened, err := session.Open(repo.Git(root), true, s.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +103,7 @@ func TestSessionSeparatesExistingEditsAndSurvivesCommit(t *testing.T) {
 	if reopened.Baseline != s.Baseline {
 		t.Fatal("lost baseline on reopen")
 	}
-	delta, err := diffview.CompareFileVersions(root, changed.Files[0], post.Files[0])
+	delta, err := diffview.CompareFileVersions(repo.Git(root), changed.Files[0], post.Files[0])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +115,7 @@ func TestUnbornSession(t *testing.T) {
 	root := t.TempDir()
 	git(t, root, "init")
 	write(t, root, "before", "existing\n")
-	s, err := session.Open(root, false, "")
+	s, err := session.Open(repo.Git(root), false, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +125,7 @@ func TestUnbornSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	view := diffview.CompareTrees(root, s.Baseline, tree)
+	view := diffview.CompareTrees(repo.Git(root), s.Baseline, tree)
 	if view.Err != nil || len(view.Files) != 1 || view.Files[0].Path != "after" {
 		t.Fatalf("unborn: %+v", view)
 	}
@@ -148,7 +150,7 @@ func TestCapturePreservesRacyIndexTimestamp(t *testing.T) {
 	if err := os.Chtimes(index, stamp, stamp); err != nil {
 		t.Fatal(err)
 	}
-	s, err := session.Open(root, false, "")
+	s, err := session.Open(repo.Git(root), false, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +181,7 @@ func TestObservedBatchesPersistAndRetainIntermediateTrees(t *testing.T) {
 	write(t, root, "file.txt", "zero\n")
 	git(t, root, "add", ".")
 	git(t, root, "commit", "-m", "initial")
-	s, err := session.Open(root, false, "")
+	s, err := session.Open(repo.Git(root), false, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +206,7 @@ func TestObservedBatchesPersistAndRetainIntermediateTrees(t *testing.T) {
 	if git(t, root, "rev-parse", ref) != after {
 		t.Fatal("batch tree was not retained")
 	}
-	reopened, err := session.Open(root, true, s.ID)
+	reopened, err := session.Open(repo.Git(root), true, s.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -8,18 +8,23 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/nccapo/stvena/internal/repo"
 )
 
 // Stage applies the displayed patch to the index, leaving working files alone.
 // Git locks the index and verifies patch context before writing it.
-func Stage(root string, expected File, hunk int) error {
+func Stage(ws repo.Workspace, expected File, hunk int) error {
+	if !ws.Git() {
+		return fmt.Errorf("staging needs a Git repository; this project has no index to stage into")
+	}
 	if expected.Scope == Session {
 		return fmt.Errorf("switch to Workspace (2) to stage changes")
 	}
 	if expected.Truncated || expected.Status == "U" {
 		return fmt.Errorf("incomplete or conflicted changes cannot be staged here")
 	}
-	current := Collect(root)
+	current := Collect(ws)
 	if current.Err != nil {
 		return current.Err
 	}
@@ -40,18 +45,18 @@ func Stage(root string, expected File, hunk int) error {
 		if expected.ContentRef == "" {
 			return fmt.Errorf("wait for a captured version before staging")
 		}
-		empty, err := gitOutput(root, "hash-object", "-w", "-t", "tree", "--stdin")
+		empty, err := gitOutput(ws, "hash-object", "-w", "-t", "tree", "--stdin")
 		if err != nil {
 			return err
 		}
-		patch, err := gitOutput(root, "diff", "--no-ext-diff", "--no-textconv", "--no-color", "--binary", strings.TrimSpace(string(empty)), expected.ContentRef, "--", expected.Path)
+		patch, err := gitOutput(ws, "diff", "--no-ext-diff", "--no-textconv", "--no-color", "--binary", strings.TrimSpace(string(empty)), expected.ContentRef, "--", expected.Path)
 		if err != nil {
 			return err
 		}
 		if len(patch) == 0 {
 			return fmt.Errorf("captured file unavailable")
 		}
-		return applyToIndex(root, string(patch), false)
+		return applyToIndex(ws, string(patch), false)
 	}
 
 	if expected.Binary {
@@ -66,7 +71,7 @@ func Stage(root string, expected File, hunk int) error {
 		return err
 	}
 	patch := strings.Join(lines, "\n") + "\n"
-	return applyToIndex(root, patch, expected.Scope == Staged)
+	return applyToIndex(ws, patch, expected.Scope == Staged)
 }
 
 // selectHunks returns the patch lines for whole-file application, or the file
@@ -105,18 +110,19 @@ func selectHunks(f File, hunks []int, verb string) ([]string, error) {
 	}
 	return lines, nil
 }
-func applyToIndex(root, patch string, reverse bool) error {
+func applyToIndex(ws repo.Workspace, patch string, reverse bool) error {
 	options := []string{"--cached"}
 	if reverse {
 		options = append(options, "--reverse")
 	}
-	return applyPatch(root, patch, options...)
+	return applyPatch(ws, patch, options...)
 }
 
-func applyPatch(root, patch string, options ...string) error {
+func applyPatch(ws repo.Workspace, patch string, options ...string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	args := append([]string{"--literal-pathspecs", "-C", root, "apply", "--whitespace=nowarn"}, options...)
+	prefix := append([]string{"--literal-pathspecs"}, ws.Args()...)
+	args := append(append(prefix, "apply", "--whitespace=nowarn"), options...)
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }

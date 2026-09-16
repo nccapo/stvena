@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/nccapo/stvena/internal/repo"
 )
 
 // Target is one rejected change. An empty Hunks selects the whole file; the
@@ -22,32 +24,40 @@ type Target struct {
 // The index is reverted with the working tree whenever the same patch applies
 // to both. A change reverted only in the working tree could otherwise still be
 // committed from the index, so the returned notice names any path left behind.
-func Revert(root string, targets []Target) (notice string, err error) {
+func Revert(ws repo.Workspace, targets []Target) (notice string, err error) {
 	if len(targets) == 0 {
 		return "", fmt.Errorf("nothing to reject")
 	}
 	var patches []string
 	for _, target := range targets {
-		patch, err := revertPatch(root, target)
+		patch, err := revertPatch(ws, target)
 		if err != nil {
 			return "", err
 		}
 		patches = append(patches, patch)
 	}
 	combined := strings.Join(patches, "")
-	if err := applyPatch(root, combined, "--index", "--reverse"); err == nil {
-		return "", nil
+	// Stvena's own index in a project without Git is a capture artifact, not
+	// something the user can commit from. Applying to it would only fail on a
+	// stat cache that no longer matches the file we are about to rewrite.
+	if ws.Git() {
+		if err := applyPatch(ws, combined, "--index", "--reverse"); err == nil {
+			return "", nil
+		}
 	}
 	// A partially staged or untracked path cannot apply to the index. Reverting
 	// the working tree alone is still the user's decision; report what remains.
-	if err := applyPatch(root, combined, "--reverse"); err != nil {
+	if err := applyPatch(ws, combined, "--reverse"); err != nil {
 		return "", fmt.Errorf("working tree unchanged: these lines no longer match the captured version. "+
 			"Review the file again before rejecting it (%w)", err)
 	}
-	return stagedNotice(root, targets), nil
+	if !ws.Git() {
+		return "", nil
+	}
+	return stagedNotice(ws, targets), nil
 }
 
-func revertPatch(root string, target Target) (string, error) {
+func revertPatch(ws repo.Workspace, target Target) (string, error) {
 	f := target.File
 	switch {
 	case f.Scope == ProjectScope || f.Scope == BranchScope:
@@ -63,7 +73,7 @@ func revertPatch(root string, target Target) (string, error) {
 		if len(target.Hunks) > 0 {
 			return "", fmt.Errorf("reject new files as a whole file")
 		}
-		return untrackedPatch(root, f)
+		return untrackedPatch(ws, f)
 	}
 	lines, err := selectHunks(f, target.Hunks, "reject")
 	if err != nil {
@@ -74,15 +84,15 @@ func revertPatch(root string, target Target) (string, error) {
 
 // untrackedPatch describes the captured file as an addition. Reversed, it
 // deletes the file the agent created.
-func untrackedPatch(root string, f File) (string, error) {
+func untrackedPatch(ws repo.Workspace, f File) (string, error) {
 	if f.ContentRef == "" {
 		return "", fmt.Errorf("wait for a captured version of %s before rejecting it", f.Path)
 	}
-	empty, err := gitOutput(root, "hash-object", "-w", "-t", "tree", "--stdin")
+	empty, err := gitOutput(ws, "hash-object", "-w", "-t", "tree", "--stdin")
 	if err != nil {
 		return "", err
 	}
-	patch, err := gitOutput(root, "diff", "--no-ext-diff", "--no-textconv", "--no-color", "--binary",
+	patch, err := gitOutput(ws, "diff", "--no-ext-diff", "--no-textconv", "--no-color", "--binary",
 		strings.TrimSpace(string(empty)), f.ContentRef, "--", f.Path)
 	if err != nil {
 		return "", err
@@ -94,7 +104,7 @@ func untrackedPatch(root string, f File) (string, error) {
 }
 
 // stagedNotice names reverted paths whose staged copy still holds the change.
-func stagedNotice(root string, targets []Target) string {
+func stagedNotice(ws repo.Workspace, targets []Target) string {
 	paths := map[string]bool{}
 	var args []string
 	for _, target := range targets {
@@ -105,7 +115,7 @@ func stagedNotice(root string, targets []Target) string {
 			}
 		}
 	}
-	out, err := gitOutput(root, append([]string{"diff", "--cached", "--name-only", "-z", "--"}, args...)...)
+	out, err := gitOutput(ws, append([]string{"diff", "--cached", "--name-only", "-z", "--"}, args...)...)
 	if err != nil {
 		return ""
 	}

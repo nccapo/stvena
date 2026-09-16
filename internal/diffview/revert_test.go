@@ -7,9 +7,12 @@ import (
 	"testing"
 
 	"github.com/nccapo/stvena/internal/session"
+
+	"github.com/nccapo/stvena/internal/repo"
 )
 
-func revertRepo(t *testing.T, lines []string) (root, path string) {
+func revertRepo(t *testing.T, lines []string) (ws repo.Workspace, path string) {
+	var root string
 	t.Helper()
 	root = t.TempDir()
 	stageGit(t, root, "init")
@@ -19,7 +22,7 @@ func revertRepo(t *testing.T, lines []string) (root, path string) {
 	}
 	stageGit(t, root, "add", ".")
 	stageGit(t, root, "commit", "-m", "initial")
-	return root, path
+	return repo.Git(root), path
 }
 
 func write(t *testing.T, path string, lines []string) {
@@ -38,9 +41,9 @@ func read(t *testing.T, path string) string {
 	return string(data)
 }
 
-func only(t *testing.T, root string, scope Scope) File {
+func only(t *testing.T, ws repo.Workspace, scope Scope) File {
 	t.Helper()
-	s := Collect(root)
+	s := Collect(ws)
 	if s.Err != nil {
 		t.Fatalf("collect: %v", s.Err)
 	}
@@ -55,13 +58,13 @@ func only(t *testing.T, root string, scope Scope) File {
 
 func TestRevertHunkKeepsOtherHunks(t *testing.T) {
 	before := []string{"one", "two", "3", "4", "5", "6", "7", "8", "9", "ten"}
-	root, path := revertRepo(t, before)
+	ws, path := revertRepo(t, before)
 	after := append([]string{}, before...)
 	after[0], after[9] = "ONE", "TEN"
 	write(t, path, after)
 
-	f := only(t, root, Unstaged)
-	notice, err := Revert(root, []Target{{File: f, Hunks: []int{0}}})
+	f := only(t, ws, Unstaged)
+	notice, err := Revert(ws, []Target{{File: f, Hunks: []int{0}}})
 	if err != nil {
 		t.Fatalf("revert first hunk: %v", err)
 	}
@@ -79,16 +82,16 @@ func TestRevertHunkKeepsOtherHunks(t *testing.T) {
 
 func TestRevertWholeFileAndBatchIsAtomic(t *testing.T) {
 	before := []string{"alpha", "beta"}
-	root, path := revertRepo(t, before)
-	second := filepath.Join(root, "other.txt")
+	ws, path := revertRepo(t, before)
+	second := filepath.Join(ws.Root, "other.txt")
 	write(t, second, []string{"kept"})
-	stageGit(t, root, "add", "other.txt")
-	stageGit(t, root, "commit", "-m", "second")
+	stageGit(t, ws.Root, "add", "other.txt")
+	stageGit(t, ws.Root, "commit", "-m", "second")
 
 	write(t, path, []string{"ALPHA", "beta"})
 	write(t, second, []string{"CHANGED"})
 
-	s := Collect(root)
+	s := Collect(ws)
 	var targets []Target
 	for _, f := range s.Files {
 		if f.Scope == Unstaged {
@@ -101,7 +104,7 @@ func TestRevertWholeFileAndBatchIsAtomic(t *testing.T) {
 	// One stale target must abandon the whole batch, leaving both files alone.
 	stale := targets[0]
 	write(t, path, []string{"moved on", "beta"})
-	if _, err := Revert(root, []Target{{File: stale.File}, targets[1]}); err == nil {
+	if _, err := Revert(ws, []Target{{File: stale.File}, targets[1]}); err == nil {
 		t.Fatal("reverted a stale batch")
 	}
 	if got := read(t, second); !strings.Contains(got, "CHANGED") {
@@ -109,14 +112,14 @@ func TestRevertWholeFileAndBatchIsAtomic(t *testing.T) {
 	}
 
 	// The same batch succeeds once every target matches the working tree.
-	s = Collect(root)
+	s = Collect(ws)
 	targets = nil
 	for _, f := range s.Files {
 		if f.Scope == Unstaged {
 			targets = append(targets, Target{File: f})
 		}
 	}
-	if _, err := Revert(root, targets); err != nil {
+	if _, err := Revert(ws, targets); err != nil {
 		t.Fatalf("revert batch: %v", err)
 	}
 	if got := read(t, second); !strings.Contains(got, "kept") {
@@ -129,13 +132,13 @@ func TestRevertWholeFileAndBatchIsAtomic(t *testing.T) {
 
 func TestRevertRefusesChangedLines(t *testing.T) {
 	before := []string{"one", "two", "three"}
-	root, path := revertRepo(t, before)
+	ws, path := revertRepo(t, before)
 	write(t, path, []string{"ONE", "two", "three"})
-	f := only(t, root, Unstaged)
+	f := only(t, ws, Unstaged)
 
 	// The agent edits the same region again before the rejection is applied.
 	write(t, path, []string{"ONE AGAIN", "two", "three"})
-	if _, err := Revert(root, []Target{{File: f}}); err == nil {
+	if _, err := Revert(ws, []Target{{File: f}}); err == nil {
 		t.Fatal("force-applied a stale patch")
 	}
 	if got := read(t, path); !strings.Contains(got, "ONE AGAIN") {
@@ -144,16 +147,16 @@ func TestRevertRefusesChangedLines(t *testing.T) {
 }
 
 func TestRevertDeletesCreatedFileAndRestoresDeletedFile(t *testing.T) {
-	root, path := revertRepo(t, []string{"kept"})
-	created := filepath.Join(root, "new.txt")
+	ws, path := revertRepo(t, []string{"kept"})
+	created := filepath.Join(ws.Root, "new.txt")
 	write(t, created, []string{"agent wrote this"})
 
-	captured, err := session.Open(root, false, "")
+	captured, err := session.Open(ws, false, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer captured.Close()
-	view := Collect(root)
+	view := Collect(ws)
 	view.FreezeContent(captured.Baseline)
 	var f File
 	for _, candidate := range view.Files {
@@ -164,7 +167,7 @@ func TestRevertDeletesCreatedFileAndRestoresDeletedFile(t *testing.T) {
 	if f.ContentRef == "" {
 		t.Fatalf("no captured untracked file: %+v", view.Files)
 	}
-	if _, err := Revert(root, []Target{{File: f}}); err != nil {
+	if _, err := Revert(ws, []Target{{File: f}}); err != nil {
 		t.Fatalf("revert created file: %v", err)
 	}
 	if _, err := os.Stat(created); !os.IsNotExist(err) {
@@ -174,11 +177,11 @@ func TestRevertDeletesCreatedFileAndRestoresDeletedFile(t *testing.T) {
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
-	deleted := only(t, root, Unstaged)
+	deleted := only(t, ws, Unstaged)
 	if deleted.Status != "D" {
 		t.Fatalf("expected a deletion, got %q", deleted.Status)
 	}
-	if _, err := Revert(root, []Target{{File: deleted}}); err != nil {
+	if _, err := Revert(ws, []Target{{File: deleted}}); err != nil {
 		t.Fatalf("revert deletion: %v", err)
 	}
 	if got := read(t, path); !strings.Contains(got, "kept") {
@@ -188,20 +191,20 @@ func TestRevertDeletesCreatedFileAndRestoresDeletedFile(t *testing.T) {
 
 func TestRevertReportsStagedCopyLeftBehind(t *testing.T) {
 	before := []string{"one", "two", "three"}
-	root, path := revertRepo(t, before)
+	ws, path := revertRepo(t, before)
 	write(t, path, []string{"ONE", "two", "three"})
-	stageGit(t, root, "add", "file.txt")
+	stageGit(t, ws.Root, "add", "file.txt")
 	// A further working-tree edit makes the index and working tree disagree, so
 	// the combined --index apply cannot succeed.
 	write(t, path, []string{"ONE", "two", "THREE"})
 
 	var unstaged File
-	for _, f := range Collect(root).Files {
+	for _, f := range Collect(ws).Files {
 		if f.Scope == Unstaged {
 			unstaged = f
 		}
 	}
-	notice, err := Revert(root, []Target{{File: unstaged}})
+	notice, err := Revert(ws, []Target{{File: unstaged}})
 	if err != nil {
 		t.Fatalf("revert: %v", err)
 	}
@@ -214,17 +217,17 @@ func TestRevertReportsStagedCopyLeftBehind(t *testing.T) {
 }
 
 func TestRevertRefusesUnsupportedScopes(t *testing.T) {
-	root, _ := revertRepo(t, []string{"one"})
+	ws, _ := revertRepo(t, []string{"one"})
 	for _, scope := range []Scope{ProjectScope, BranchScope} {
-		if _, err := Revert(root, []Target{{File: File{Path: "file.txt", Scope: scope, Status: "M"}}}); err == nil {
+		if _, err := Revert(ws, []Target{{File: File{Path: "file.txt", Scope: scope, Status: "M"}}}); err == nil {
 			t.Fatalf("accepted %s scope", scope)
 		}
 	}
 	conflicted := File{Path: "file.txt", Scope: Unstaged, Status: "U"}
-	if _, err := Revert(root, []Target{{File: conflicted}}); err == nil {
+	if _, err := Revert(ws, []Target{{File: conflicted}}); err == nil {
 		t.Fatal("accepted a conflicted file")
 	}
-	if _, err := Revert(root, nil); err == nil {
+	if _, err := Revert(ws, nil); err == nil {
 		t.Fatal("accepted an empty batch")
 	}
 }
@@ -250,10 +253,10 @@ func TestHunkSpansMapPatchHunksToWorkingLines(t *testing.T) {
 }
 
 func TestHunkSpansAlignWithHunkOrder(t *testing.T) {
-	root, path := revertRepo(t, []string{"one", "two", "3", "4", "5", "6", "7", "8", "9", "ten"})
+	ws, path := revertRepo(t, []string{"one", "two", "3", "4", "5", "6", "7", "8", "9", "ten"})
 	after := []string{"ONE", "two", "3", "4", "5", "6", "7", "8", "9", "TEN"}
 	write(t, path, after)
-	f := only(t, root, Unstaged)
+	f := only(t, ws, Unstaged)
 	spans := HunkSpans(f)
 	starts := 0
 	for _, line := range f.Lines {

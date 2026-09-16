@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/nccapo/stvena/internal/session"
+
+	"github.com/nccapo/stvena/internal/repo"
 )
 
 // RecordHook stores only lifecycle metadata and explicit edit paths, never
@@ -23,6 +25,7 @@ func RecordHook(input io.Reader) error {
 	if dir == "" || root == "" {
 		return nil
 	}
+	ws := repo.FromEnv(root, os.Getenv("STVENA_GIT_DIR"))
 	var h struct {
 		Kind         string `json:"hook_event_name"`
 		ID           string `json:"tool_use_id"`
@@ -72,8 +75,8 @@ func RecordHook(input io.Reader) error {
 	if h.ID != "" && h.Kind == "PreToolUse" && len(paths) > 0 {
 		before := map[string]string{}
 		for _, p := range paths {
-			if rel := safePath(root, h.CWD, p); rel != "" && !ignored(root, rel) {
-				if v, err := fileVersion(root, rel); err == nil {
+			if rel := safePath(root, h.CWD, p); rel != "" && !ignored(ws, rel) {
+				if v, err := fileVersion(ws, rel); err == nil {
 					before[rel] = v
 				}
 			}
@@ -86,7 +89,7 @@ func RecordHook(input io.Reader) error {
 		var before map[string]string
 		if data, err := os.ReadFile(beforePath); h.Kind == "PostToolUse" && err == nil && json.Unmarshal(data, &before) == nil {
 			for p, old := range before {
-				if v, err := fileVersion(root, p); err == nil && v != old {
+				if v, err := fileVersion(ws, p); err == nil && v != old {
 					e.Changes = append(e.Changes, Change{p, v})
 				}
 			}
@@ -136,13 +139,15 @@ func safePath(root, cwd, path string) string {
 	}
 	return filepath.ToSlash(rel)
 }
-func ignored(root, path string) bool {
+func ignored(ws repo.Workspace, path string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	return exec.CommandContext(ctx, "git", "-C", root, "check-ignore", "--quiet", "--", path).Run() == nil
+	args := append(ws.Args(), "check-ignore", "--quiet", "--", path)
+	return exec.CommandContext(ctx, "git", args...).Run() == nil
 }
 
-func fileVersion(root, path string) (string, error) {
+func fileVersion(ws repo.Workspace, path string) (string, error) {
+	root := ws.Root
 	if safePath(root, root, path) != path {
 		return "", fmt.Errorf("path outside workspace")
 	}
@@ -158,7 +163,7 @@ func fileVersion(root, path string) (string, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "git", "-C", root, "hash-object", "--", path).Output()
+	out, err := exec.CommandContext(ctx, "git", append(ws.Args(), "hash-object", "--", path)...).Output()
 	return strings.TrimSpace(string(out)), err
 }
 

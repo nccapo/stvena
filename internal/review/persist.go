@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/nccapo/stvena/internal/diffview"
+	"github.com/nccapo/stvena/internal/repo"
 	"github.com/nccapo/stvena/internal/session"
 )
 
@@ -35,11 +36,12 @@ type Saved struct {
 	ContextQuestion string
 }
 
-func (s *State) Load(root string) error {
+func (s *State) Load(ws repo.Workspace) error {
+	s.UseWorkspace(ws)
 	if s.Snapshot.Root == "" {
-		s.Snapshot.Root = root
+		s.Snapshot.Root = ws.Root
 	}
-	dir, err := session.RepoDir(root)
+	dir, err := session.RepoDir(ws.Root)
 	if err != nil {
 		return err
 	}
@@ -79,7 +81,7 @@ func (s *State) Save() error {
 		if tree == "" || s.retained[tree] {
 			return nil
 		}
-		if err := session.Retain(s.Snapshot.Root, tree); err != nil {
+		if err := session.Retain(s.ws, tree); err != nil {
 			return err
 		}
 		s.retained[tree] = true

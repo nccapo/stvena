@@ -23,11 +23,7 @@ type Presence struct {
 
 // PresencePath is the descriptor an editor extension writes to.
 func PresencePath(saved *session.Session) (string, error) {
-	dir, err := repositoryGitDir(saved.Root)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "stvena-ide.json"), nil
+	return filepath.Join(saved.WS.DescriptorDir(), "stvena-ide.json"), nil
 }
 
 // ReadPresence returns the connected editor's name, or an empty string. A

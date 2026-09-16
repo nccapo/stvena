@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/nccapo/stvena/internal/repo"
 )
 
 func TestCommandShortcutsRouteAcrossAgentsAndPanes(t *testing.T) {
@@ -41,7 +43,7 @@ func TestCommandQuitWorksDuringEditingAndHandoffAndSavesGlobally(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			isolateHotkeys(t)
 			s := terminalState(t)
-			s.root = t.TempDir()
+			s.ws.Root = t.TempDir()
 			switch mode {
 			case "review":
 				s.diffFocused = true
@@ -64,7 +66,7 @@ func TestCommandQuitWorksDuringEditingAndHandoffAndSavesGlobally(t *testing.T) {
 			if s.agentInput.(*bytes.Buffer).Len() != 0 || len(s.pasteInput) != 0 {
 				t.Fatal("quit leaked input")
 			}
-			other := screenState{root: t.TempDir()}
+			other := screenState{ws: repo.Git(t.TempDir())}
 			other.loadPreferences()
 			if other.review.Binding("a") != "r" {
 				t.Fatal("quitting lost unsaved global binding")

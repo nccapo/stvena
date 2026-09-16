@@ -26,12 +26,12 @@ compatible Stvena terminal application:
 2. Install the compatible Stvena binary:
 
    ```sh
-   curl -fsSL https://raw.githubusercontent.com/nccapo/stvena/v0.3.0-preview.1/install.sh | \
-     STVENA_VERSION=v0.3.0-preview.1 sh
+   curl -fsSL https://raw.githubusercontent.com/nccapo/stvena/v0.4.0-preview.1/install.sh | \
+     STVENA_VERSION=v0.4.0-preview.1 sh
    ```
 
-3. Open a trusted local Git project. In the integrated terminal, check
-   `stvena --version` reports `0.3.0-preview.1`, then run `stvena` for Codex or
+3. Open a trusted local project, with or without Git. In the integrated terminal, check
+   `stvena --version` reports `0.4.0-preview.1`, then run `stvena` for Codex or
    `stvena claude` for Claude Code.
 4. Ask your agent to edit and save a file. Its change blocks are tinted in the
    working file with **✓ Accept** and **✗ Reject** above them, and **Stvena
@@ -44,8 +44,8 @@ to your update settings. Update the Stvena binary separately when upgrading it.
 
 ### Manual installation and Antigravity
 
-Download `stvena-live-0.3.0.vsix` from the
-[v0.3.0-preview.1 release](https://github.com/nccapo/stvena/releases/tag/v0.3.0-preview.1),
+Download `stvena-live-0.4.0.vsix` from the
+[v0.4.0-preview.1 release](https://github.com/nccapo/stvena/releases/tag/v0.4.0-preview.1),
 or [build the current extension from source](#build-from-source). In VS Code or
 Antigravity IDE's Command Palette, run **Extensions: Install from VSIX…** and
 select the package, then follow the binary installation and startup steps above.
@@ -66,7 +66,8 @@ The rejection is queued, shown immediately as rejected, and applied when the
 agent finishes its turn. The status bar says how many are waiting and why, and
 clicking it applies them now.
 
-Requires Stvena **0.3.0-preview.1** or newer. Against an older binary the
+Requires Stvena **0.3.0-preview.1** or newer; reviewing a project that is not a
+Git repository requires **0.4.0-preview.1**. Against an older binary the
 extension keeps its 0.2.x read and edit following and hides what that binary
 cannot do. See the [changelog](CHANGELOG.md).
 
@@ -105,7 +106,7 @@ captured lines no longer match what is on screen. Save, and they return. Set
 ## Troubleshooting
 
 If the view stays **Waiting**, check the binary version, workspace trust, and
-that Stvena is running in the same Git project. Use **Stvena Live** in the Output
+that Stvena is running in the same project. Use **Stvena Live** in the Output
 panel for connection errors. Read markers depend on supported agent hooks;
 saved-edit following works independently of them.
 
@@ -115,8 +116,8 @@ saved-edit following works independently of them.
    `go build -o bin/stvena ./cmd/stvena`.
 2. In `extensions/vscode`, run `npm ci` and `npm run package`.
 3. In VS Code, run **Extensions: Install from VSIX…** and select the generated
-   `stvena-live-0.3.1.vsix`.
-4. Open a Git project and run the newly built Stvena binary in its terminal.
+   `stvena-live-0.4.0.vsix`.
+4. Open a project and run the newly built Stvena binary in its terminal.
    Released binaries predating this integration do not publish editor updates.
 5. Ask your agent to edit a file. **Stvena Live** in Explorer lists the latest
    captured batch; selecting a file opens its working source at the changed line.
@@ -198,8 +199,14 @@ and [Claude hooks](https://code.claude.com/docs/en/hooks) interfaces.
 - Git and Stvena must run on the same machine as the workspace extension host.
   Local macOS and Linux are the initial target. Remote hosts are unverified.
   Stvena itself does not support native Windows.
-- Open a trusted local Git workspace. Nested folders, multiple workspace roots,
-  and Git worktrees are supported by repository discovery.
+- Open a trusted local workspace. Nested folders, multiple workspace roots, and
+  Git worktrees are supported by project discovery.
+- A project that is not a Git repository works too: Stvena captures it into its
+  own directory and records where, and the extension finds it there when Git has
+  nothing to say about the folder. Git is always asked first, so a repository is
+  resolved exactly as before. Branch comparison and staging need a repository and
+  are unavailable in such a project; following, review focus, markers and
+  accept/reject are not. The `git` command itself is still required.
 - Edit updates are snapshots of **saved files**, sampled roughly every 700 ms plus
   capture time; extension polling adds up to another 700 ms. This is not a stream
   of the agent's keystrokes or an exact audit history. Multiple writes can combine
@@ -220,8 +227,13 @@ and [Claude hooks](https://code.claude.com/docs/en/hooks) interfaces.
 ## Local data
 
 The extension reads private `stvena-live.json` and `stvena-review.json`
-descriptors inside the worktree's Git directory and writes validated user actions
-atomically to `stvena-request.json`. It opens working source files. There is no listening
+descriptors and writes validated user actions atomically to
+`stvena-request.json`. Those descriptors live inside the worktree's Git
+directory, or, for a project that is not a repository, in Stvena's own
+per-project cache directory — never in your source tree. It locates the second
+kind through Stvena's bridge registry in `~/.stvena/bridges/` (or `$STVENA_HOME`),
+one owner-only JSON file per reviewed project holding the project's path and the
+directory its descriptors are in. Nothing in that file is ever executed. It opens working source files. There is no listening
 network service, account, or telemetry. Stvena's tool observer stores only the
 latest read location in its private session cache and includes it in the bridge.
 The extension neither writes source files nor runs terminal commands on the
@@ -231,7 +243,8 @@ For connection or preview errors, select **Stvena Live** in the Output panel.
 
 ## Development
 
-`npm test` exercises activity validation, marker lifecycle, and real Git/worktree/blob reads.
+`npm test` exercises activity validation, marker lifecycle, real Git/worktree/blob
+reads, and project discovery with and without Git.
 The extension is plain JavaScript with no runtime npm dependencies. Launch an
 extension development host with `--extensionDevelopmentPath=/absolute/path/to/extensions/vscode`.
 See [the bridge protocol](../../docs/editor-integration.md) for integration details

@@ -23,6 +23,7 @@ import (
 	"github.com/charmbracelet/x/vt"
 	"github.com/nccapo/stvena/internal/diffview"
 	"github.com/nccapo/stvena/internal/editor"
+	"github.com/nccapo/stvena/internal/repo"
 	"github.com/nccapo/stvena/internal/review"
 	"github.com/nccapo/stvena/internal/ui"
 	"golang.org/x/term"
@@ -54,9 +55,14 @@ type exitEvent struct {
 }
 type shutdownEvent struct{}
 type inputEvent struct{ data []byte }
+
+// root is the reviewed working tree. The workspace also names the Git
+// directory Stvena drives it with, which is not always inside it.
+func (s *screenState) root() string { return s.ws.Root }
+
 type contentRequest struct {
 	id   int
-	root string
+	ws   repo.Workspace
 	file diffview.File
 }
 type contentEvent struct {
@@ -88,16 +94,16 @@ func Run(args []string) error {
 		if e != nil {
 			return e
 		}
-		root, e := diffview.GitRoot(cwd)
+		ws, _, e := repo.Discover(cwd)
 		if e != nil {
 			return e
 		}
-		sessions, e := session.List(root)
+		sessions, e := session.List(ws.Root)
 		if e != nil {
 			return e
 		}
 		if len(sessions) == 0 {
-			fmt.Fprintln(os.Stdout, "No saved sessions in this repository.")
+			fmt.Fprintln(os.Stdout, "No saved sessions in this project.")
 		}
 		for i := range sessions {
 			s := sessions[i]
@@ -131,10 +137,12 @@ func Run(args []string) error {
 	if err != nil {
 		return err
 	}
-	root, rootErr := diffview.GitRoot(cwd)
+	ws, notice, rootErr := repo.Discover(cwd)
 	if rootErr != nil {
-		root = cwd
+		ws = repo.Git(cwd)
+		ws.Root = cwd
 	}
+	root := ws.Root
 
 	width, height, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil {
@@ -144,7 +152,13 @@ func Run(args []string) error {
 	var savedSession *session.Session
 	var sessionErr error
 	if rootErr == nil {
-		savedSession, sessionErr = session.Open(root, standalone, sessionID)
+		savedSession, sessionErr = session.Open(ws, standalone, sessionID)
+	}
+	if savedSession != nil {
+		if err := repo.Publish(ws); err != nil {
+			notice = repo.Notice("Editors may not find this project: " + err.Error())
+		}
+		go func() { repo.Prune(); _ = repo.Collect(ws) }()
 	}
 	if standalone && sessionID != "" && sessionErr != nil {
 		return sessionErr
@@ -164,8 +178,11 @@ func Run(args []string) error {
 	stop := make(chan struct{})
 	stopEvents := sync.OnceFunc(func() { close(stop) })
 	defer stopEvents()
-	state := screenState{layout: layout, session: savedSession, root: root, exited: standalone, ratio: 58, agentInput: io.Discard, editorReview: editorReview}
+	state := screenState{layout: layout, session: savedSession, ws: ws, exited: standalone, ratio: 58, agentInput: io.Discard, editorReview: editorReview}
 	state.terminalIDE = editor.TerminalName(os.Getenv)
+	if notice != "" {
+		state.review.Notice = string(notice)
+	}
 	if savedSession != nil {
 		if path, err := editor.PresencePath(savedSession); err == nil {
 			state.presencePath = path
@@ -180,6 +197,9 @@ func Run(args []string) error {
 				return nil, err
 			}
 			env := []string{"STVENA_ROOT=" + root, "STVENA_ATTENTION_DIR=" + dir}
+			if !ws.Git() {
+				env = append(env, "STVENA_GIT_DIR="+ws.GitDir)
+			}
 			if savedSession != nil {
 				env = append(env, "STVENA_ACTIVITY_PATH="+editor.ActivityPath(savedSession), "STVENA_SESSION="+savedSession.ID, "STVENA_AGENT="+filepath.Base(args[0]))
 			}
@@ -221,7 +241,7 @@ func Run(args []string) error {
 	defer blank.Close()
 	go readInput(events)
 	watchDone := make(chan struct{})
-	go func() { defer close(watchDone); watchSnapshots(root, rootErr, savedSession, events, stop) }()
+	go func() { defer close(watchDone); watchSnapshots(ws, rootErr, savedSession, events, stop) }()
 
 	contentRequests := make(chan contentRequest, 1)
 	go watchContent(contentRequests, events, stop)
@@ -267,7 +287,7 @@ func Run(args []string) error {
 	if savedSession != nil {
 		state.review.Source = "session"
 	}
-	if err := state.review.Load(root); err != nil {
+	if err := state.review.Load(ws); err != nil {
 		state.review.Notice = err.Error()
 	}
 	if sessionErr != nil {
@@ -509,7 +529,7 @@ type screenState struct {
 	contentID                                       int
 	problemID                                       int
 	contentStamp                                    string
-	root                                            string
+	ws                                              repo.Workspace
 	session                                         *session.Session
 	workspace, sessionView, projectView, branchView diffview.Snapshot
 	fullscreen, exited, busy                        bool
@@ -773,15 +793,8 @@ func readInput(events chan<- any) {
 	}
 }
 
-func watchDiff(root string, rootErr error, events chan<- any, stop <-chan struct{}) {
+func watchDiff(ws repo.Workspace, rootErr error, events chan<- any, stop <-chan struct{}) {
 	refresh := func() {
-		if rootErr != nil {
-			if discovered, err := diffview.GitRoot(root); err == nil {
-				root, rootErr = discovered, nil
-			} else {
-				rootErr = err
-			}
-		}
 		if rootErr != nil {
 			select {
 			case events <- diffEvent{snapshot: diffview.Snapshot{Err: rootErr, UpdatedAt: time.Now()}}:
@@ -789,7 +802,7 @@ func watchDiff(root string, rootErr error, events chan<- any, stop <-chan struct
 			}
 			return
 		}
-		snapshot := diffview.Collect(root)
+		snapshot := diffview.Collect(ws)
 		select {
 		case events <- diffEvent{snapshot: snapshot}:
 		case <-stop:
@@ -842,7 +855,7 @@ func (s *screenState) queueContent(requests chan contentRequest) {
 		s.review.Content = diffview.Content{}
 	}
 	s.review.ContentKey, s.review.ContentLoading = f.Key(), true
-	request := contentRequest{id: s.contentID, root: s.review.Snapshot.Root, file: *f}
+	request := contentRequest{id: s.contentID, ws: s.ws, file: *f}
 	select {
 	case <-requests:
 	default:
@@ -854,7 +867,7 @@ func watchContent(requests <-chan contentRequest, events chan<- any, stop <-chan
 	for {
 		select {
 		case request := <-requests:
-			content := diffview.LoadContent(request.root, request.file)
+			content := diffview.LoadContent(request.ws, request.file)
 			select {
 			case events <- contentEvent{id: request.id, key: request.file.Key(), content: content}:
 			case <-stop:
