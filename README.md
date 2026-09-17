@@ -85,8 +85,9 @@ brew upgrade stvena
 brew uninstall stvena
 ```
 
-Preview releases are not installed automatically. For the editor integration
-preview, follow [Follow reads and edits in VS Code](#follow-reads-and-edits-in-vs-code).
+Preview releases are not installed automatically. The editor integrations need
+Stvena 0.4.0 or later; see
+[Follow reads and edits in VS Code](#follow-reads-and-edits-in-vs-code).
 
 If you previously used `install.sh` and Homebrew reports an existing binary in
 `/opt/homebrew/bin` or `/usr/local/bin`, locate it first:
@@ -385,10 +386,10 @@ relevant lines with an inline label; markers expire after 15 seconds. Codex
 requires its normal `/hooks` trust review before read reporting runs.
 
 Accept and reject, the per-block actions, Explorer badges, asking the agent
-about a selection, and IDE mode need Stvena **0.3.0-preview.1** or a current
-source build. Reviewing a project that is not a Git repository needs
-**0.4.0-preview.1**. Against an older binary the extension hides what that
-binary cannot do and keeps its 0.2.x read and edit following.
+about a selection, IDE mode, and reviewing a project that is not a Git
+repository need Stvena **0.4.0** or later. Against an older binary the
+extension hides what that binary cannot do and keeps its 0.2.x read and edit
+following.
 
 Install **Stvena Live** by **nccapo** from the VS Code Extensions view, or run:
 
@@ -396,21 +397,14 @@ Install **Stvena Live** by **nccapo** from the VS Code Extensions view, or run:
 code --install-extension nccapo.stvena-live
 ```
 
-Then install the compatible Stvena binary on macOS or Linux. The extension and
-terminal application are installed separately; the editor features require the
-[v0.4.0-preview.1 binary](https://github.com/nccapo/stvena/releases/tag/v0.4.0-preview.1)
-or a current source build:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/nccapo/stvena/v0.4.0-preview.1/install.sh | \
-  STVENA_VERSION=v0.4.0-preview.1 sh
-```
+Then install or upgrade the Stvena binary on macOS or Linux with
+[Homebrew](#homebrew-macos-and-linux) (`brew upgrade stvena`) or the
+[install script](#install-script-macos-and-linux). The extension and terminal
+application are installed and updated separately.
 
 Open a trusted local workspace in VS Code, check that `stvena --version`
-reports `0.4.0-preview.1`, and run `stvena` or `stvena claude` in its integrated
-terminal. No Go or Node.js installation is needed. The default Stvena installer
-selects the stable release, which predates the editor bridge, so use the explicit
-preview version above.
+reports `0.4.0` or later, and run `stvena` or `stvena claude` in its integrated
+terminal. No Go or Node.js installation is needed.
 
 Stvena Live **0.3.0** adds accept and reject. Marketplace installations receive
 updates through VS Code according to your update settings; a pre-release version
@@ -448,7 +442,7 @@ binary serves it:
 stvena editor-lsp --ide zed
 ```
 
-The language server ships in Stvena **0.4.0-preview.2** and later; an earlier
+The language server ships in Stvena **0.4.0** and later; an earlier
 binary has no `editor-lsp` subcommand and the editor will report that the server
 failed to start.
 
