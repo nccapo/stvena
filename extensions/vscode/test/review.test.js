@@ -19,11 +19,13 @@ function harness(options = {}) {
     lineAt: () => ({ text: 'source' }),
   };
   let kinds = 0;
+  const emitters = []; // lens changes, then badge changes, in creation order
+  const edited = []; // onDidChangeTextDocument listeners
   const vscode = {
     workspace: {
       getConfiguration: () => ({ get: (_name, fallback) => options.codeLens === false ? false : fallback }),
       onDidSaveTextDocument: () => ({ dispose() {} }),
-      onDidChangeTextDocument: () => ({ dispose() {} }),
+      onDidChangeTextDocument: listener => { edited.push(listener); return { dispose() {} }; },
     },
     window: {
       visibleTextEditors: [{ document, setDecorations: (type, list) => painted.set(type.kind, list) }],
@@ -35,7 +37,12 @@ function harness(options = {}) {
       showInformationMessage: message => { information.push(message); },
     },
     languages: { registerCodeLensProvider: (_selector, provider) => { vscode.lenses = provider; return { dispose() {} }; } },
-    EventEmitter: class { constructor() { this.event = () => ({ dispose() {} }); } fire() {} dispose() {} },
+    EventEmitter: class {
+      constructor() { this.event = () => ({ dispose() {} }); emitters.push(this); this.fired = []; }
+      fire(value) { this.fired.push(value); }
+      dispose() {}
+    },
+    Uri: { file: fsPath => ({ scheme: 'file', fsPath }) },
     Range: class { constructor(a, b, c, d) { Object.assign(this, { a, b, c, d }); } },
     CodeLens: class { constructor(range, command) { Object.assign(this, { range, command }); } },
     FileDecoration: class { constructor(badge, tooltip, color) { Object.assign(this, { badge, tooltip, color }); } },
@@ -48,7 +55,9 @@ function harness(options = {}) {
     if (options.sendFails) return Promise.reject(new Error('does not support "reject"'));
     return Promise.resolve({ id: `req-${sent.length}` });
   });
-  return { ui, vscode, sent, painted, warnings, errors, information, document };
+  return { ui, vscode, sent, painted, warnings, errors, information, document,
+    lensFires: () => emitters[0].fired, badgeFires: () => emitters[1].fired,
+    edit: () => edited.forEach(listener => listener({ document })) };
 }
 
 function repos(hunk = {}, extra = {}) {
@@ -148,9 +157,10 @@ test('changed lines are painted by state, and never onto an unsaved buffer', () 
   h.ui.update(repos({ rejected: true }));
   assert.deepEqual(buckets(), [0, 0, 1]);
 
-  // An edited buffer no longer matches the captured lines.
+  // An edited buffer no longer matches the captured lines. The edit itself
+  // repaints; nothing waits for the next poll.
   h.document.isDirty = true;
-  h.ui.update(repos({ rejected: true }));
+  h.edit();
   assert.deepEqual(buckets(), [0, 0, 0]);
   assert.deepEqual(h.vscode.lenses.provideCodeLenses(h.document), []);
 });
@@ -229,4 +239,43 @@ test('explicit apply reports the acknowledged outcome once, even after the queue
     assert.deepEqual(h.warnings, status === 'refused' ? [`Stvena: ${message}`] : []);
     assert.deepEqual(h.information, status === 'applied' ? [`Stvena: ${message}`] : []);
   }
+});
+
+// The extension polls every 700 ms. Telling VS Code that decorations changed
+// makes it drop and re-request them, which shows: the badge and the tab colour
+// blink. A poll that changes nothing must redraw nothing.
+test('an unchanged poll redraws nothing, so badges and lenses do not blink', () => {
+  const h = harness();
+  h.ui.update(repos());
+  assert.equal(h.badgeFires().length, 1);
+  assert.equal(h.lensFires().length, 1);
+  for (let i = 0; i < 5; i++) h.ui.update(repos());
+  assert.equal(h.badgeFires().length, 1, 'an identical poll re-fired the badges');
+  assert.equal(h.lensFires().length, 1, 'an identical poll re-fired the lenses');
+});
+
+test('a changed poll names only the files involved', () => {
+  const h = harness();
+  h.ui.update(repos());
+  h.ui.update(repos({ reviewed: true }));
+  assert.equal(h.badgeFires().length, 2);
+  const uris = h.badgeFires()[1];
+  assert.ok(Array.isArray(uris), 'a routine change invalidated every decoration');
+  assert.deepEqual(uris.map(uri => uri.fsPath), [path.join('/repo', 'a.go')]);
+  // A file that leaves the review is also named, so its badge is removed.
+  h.ui.update([{ ...repos()[0], review: { ...repos()[0].review, files: [] } }]);
+  assert.deepEqual(h.badgeFires()[2].map(uri => uri.fsPath), [path.join('/repo', 'a.go')]);
+});
+
+test('a decision Stvena confirms still redraws, even though its own state is unchanged', async () => {
+  const h = harness();
+  h.ui.update(repos());
+  await h.ui.decide('accept', { root: '/repo', path: 'a.go', hunkId: HUNK, start: 4, end: 9 });
+  const before = h.badgeFires().length;
+  // Stvena now agrees: the optimistic entry is dropped, which changes nothing
+  // visible, but the published state did change, so a redraw is due.
+  h.ui.update(repos({ reviewed: true }, { lastRequest: { id: 'req-1', action: 'accept', status: 'applied', at: new Date().toISOString() } }));
+  assert.equal(h.badgeFires().length, before + 1);
+  h.ui.update(repos({ reviewed: true }, { lastRequest: { id: 'req-1', action: 'accept', status: 'applied', at: new Date().toISOString() } }));
+  assert.equal(h.badgeFires().length, before + 1, 'the settled state kept redrawing');
 });
