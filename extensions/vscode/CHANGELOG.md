@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.1
+
+- Find a project without Git as soon as Stvena starts in it, instead of up to
+  five seconds later. Until then the extension could not see the project, so
+  the agent's first reads and edits were not followed. A folder that is not yet
+  resolved is looked up again whenever Stvena's bridge registry changes, which
+  needs no git process.
+
 ## 0.4.0
 
 - Follow agent edits and reviews in projects that are not Git repositories.
