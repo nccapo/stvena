@@ -244,8 +244,12 @@ is between turns, using the same `Stop` hook that drives agent attention. The
 review header shows `N rejected pending` while it waits.
 
 In the editor, an accepted or rejected block disappears as soon as you click;
-undo it from Stvena. Only one Stvena per project talks to the editor: if you
-start a second one, the newest takes over and the older one says so.
+undo it from Stvena.
+
+Every Stvena in a project shares review marks: accept a change in one and it is
+accepted in the others wherever they show the same change, and undoing it
+travels the same way. Only one of them talks to the editor: if you start a
+second one, the newest takes over and the older one says so.
 
 **Without hooks there is no turn boundary to wait for.** Three seconds of
 silence means only that nothing was printed, never that a turn ended, so Stvena
