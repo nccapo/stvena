@@ -119,6 +119,10 @@ func (s *screenState) finishAgentPaste(err error) {
 			s.review.Notice = "Question pasted · review it in the agent, then press Enter"
 			return
 		}
+		if kind == "paste" {
+			s.review.Notice = "Code pasted · add your request in the agent, then press Enter"
+			return
+		}
 		switch {
 		case !s.review.AutoSubmitRejections:
 			s.review.Notice = "Rejections pasted · review the message in the agent, then press Enter"

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.0
+
+- Paste a selection to the agent, like Drag+b in Stvena. A selection in a
+  reviewed file shows **⤴ Paste to agent · Ask… · Add to context** above its
+  first line, the same way ✓ Accept / ✗ Reject are shown, plus a send button in
+  the editor title bar. The actions appear once the selection stops moving and
+  stay put while you extend it. It needs a Stvena build that advertises `paste`.
+- Say when a question or paste did not reach the agent (for example, no agent
+  is running) instead of reporting it as ready.
+
 ## 0.4.1
 
 - Stop the editor tab, Explorer badge and ✓ Accept / ✗ Reject buttons from

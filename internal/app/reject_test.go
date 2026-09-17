@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -528,6 +529,11 @@ func TestEditorPromptBuildsAnAgentDraftFromCapturedSource(t *testing.T) {
 	request.Line, request.EndLine = 3, 3
 	request.Text = "  why is this exported?  "
 	s.applyEditorRequest(request)
+	if s.lastEditorRequest == nil || s.lastEditorRequest.Status != "refused" || s.pendingDraft != "" {
+		t.Fatalf("a question without a running agent was accepted: %+v", s.lastEditorRequest)
+	}
+	s.agentInput, s.agentName = io.Discard, "claude"
+	s.applyEditorRequest(request)
 
 	if s.lastEditorRequest == nil || s.lastEditorRequest.Status != "applied" {
 		t.Fatalf("prompt not acknowledged: %+v", s.lastEditorRequest)
@@ -555,5 +561,27 @@ func TestEditorPromptBuildsAnAgentDraftFromCapturedSource(t *testing.T) {
 	s.applyEditorRequest(empty)
 	if s.lastEditorRequest.Status != "refused" {
 		t.Fatalf("empty question accepted: %+v", s.lastEditorRequest)
+	}
+
+	// Paste is the editor's Drag+b: the selection alone, no question needed.
+	s.pendingDraft, s.pendingDraftKind, s.review.Request = "", "", ""
+	paste := editorRequest("paste", "f.go", "")
+	paste.Line, paste.EndLine = 3, 3
+	s.applyEditorRequest(paste)
+	if s.lastEditorRequest.Status != "applied" {
+		t.Fatalf("paste not acknowledged: %+v", s.lastEditorRequest)
+	}
+	if s.pendingDraftKind != "paste" || s.review.Request != "paste-draft" {
+		t.Fatalf("paste queued as %q with request %q", s.pendingDraftKind, s.review.Request)
+	}
+	if !strings.Contains(s.pendingDraft, "func greet()") || !strings.HasSuffix(strings.TrimSpace(s.pendingDraft), "```") {
+		t.Fatalf("paste should be the captured selection alone:\n%s", s.pendingDraft)
+	}
+
+	outside := editorRequest("paste", "missing.go", "")
+	outside.Line, outside.EndLine = 1, 1
+	s.applyEditorRequest(outside)
+	if s.lastEditorRequest.Status != "refused" {
+		t.Fatalf("paste of a file outside the capture accepted: %+v", s.lastEditorRequest)
 	}
 }

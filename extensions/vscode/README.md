@@ -140,6 +140,11 @@ line or selected range. It is persistent while that review location is active;
 Stvena still renders the diff, and the extension opens only the ordinary working
 file. From an editor context menu or the Command Palette:
 
+- **Stvena: Paste Selection to Agent** puts the captured lines into the agent's
+  input, like `b` in Stvena, without sending them. A selection also shows
+  **⤴ Paste to agent · Ask… · Add to context** above its first line, and a send
+  button in the editor title bar. Set `stvena.showSelectionCodeLens` to `false`
+  to hide the actions above the selection.
 - **Stvena: Review This Line in Stvena** opens the corresponding captured change
   in the TUI, falling back to the captured project file when it is unchanged.
 - **Stvena: Add Selection to Context** adds the matching immutable captured lines

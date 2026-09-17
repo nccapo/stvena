@@ -283,6 +283,16 @@ editor Stvena does not recognise.
 In IDE mode the header carries what the review pane would have shown: remaining
 review work, pending rejections, and the current notice.
 
+## Paste a selection to the agent
+
+This is **Drag+b** from the editor. Select lines in a file Stvena is reviewing and
+**⤴ Paste to agent · Ask… · Add to context** appears above the selection, like
+the ✓ Accept / ✗ Reject actions; the editor title bar gets a send button too. In
+Zed, use the **Stvena: Paste Selection to Agent** code action. The selected lines
+go into the agent's input exactly as `b` pastes them in Stvena. Add your request
+around them and press Enter yourself. Hide the actions with
+`stvena.showSelectionCodeLens`.
+
 ## Ask the agent about a selection
 
 Select code in the editor and press **Cmd-K Cmd-A** (**Ctrl-K Ctrl-A** on Linux),

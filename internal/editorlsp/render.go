@@ -22,7 +22,7 @@ const progressToken = "stvena/status"
 var commandNames = []string{
 	"stvena.accept", "stvena.unaccept", "stvena.reject", "stvena.undoReject",
 	"stvena.acceptFile", "stvena.rejectFile", "stvena.applyRejections",
-	"stvena.nextUnreviewed", "stvena.review", "stvena.context", "stvena.prompt",
+	"stvena.nextUnreviewed", "stvena.review", "stvena.context", "stvena.prompt", "stvena.paste",
 	"stvena.toggleFollow", "stvena.showLatest",
 }
 
@@ -235,14 +235,17 @@ func (s *server) actionsFor(uri string, selection lspRange) []map[string]any {
 			endLine = line
 		}
 		ref := target{Path: doc.path, Line: line, EndLine: endLine}
+		// First, so it is the default action on a selection, as Drag+b is in
+		// Stvena. LSP has no text input, so a question cannot be asked here;
+		// the user writes it around the pasted code in the agent instead.
+		if supports(s.review, "paste") {
+			add("Stvena: Paste Selection to Agent", "stvena.paste", ref)
+		}
 		if supports(s.review, "review") {
 			add("Stvena: Review This Line in Stvena", "stvena.review", ref)
 		}
 		if supports(s.review, "context") {
 			add("Stvena: Add Selection to Context", "stvena.context", ref)
-		}
-		if supports(s.review, "prompt") {
-			add("Stvena: Ask the Agent About This Selection", "stvena.prompt", ref)
 		}
 		if supports(s.review, "accept") {
 			add("Stvena: Accept All Changes in This File", "stvena.acceptFile", target{Path: doc.path, Line: 1, EndLine: 1})

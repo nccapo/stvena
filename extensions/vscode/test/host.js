@@ -41,7 +41,7 @@ async function scenario(repo, root, session) {
     await fs.rename(repo.reviewPath + '.tmp', repo.reviewPath);
   }
   const FEATURES = ['review', 'context', 'accept', 'unaccept', 'reject', 'undo-reject',
-    'apply-rejections', 'next-unreviewed'];
+    'apply-rejections', 'next-unreviewed', 'paste'];
   const HUNK = 'a'.repeat(64);
   // reviewFile publishes per-hunk state the way Stvena does for a changed file.
   const reviewFile = (hunk = {}) => ({ features: FEATURES, tree: '1'.repeat(40),
@@ -155,6 +155,7 @@ async function scenario(repo, root, session) {
       'Review request did not replace the context request');
     request = JSON.parse(await fs.readFile(repo.requestPath, 'utf8'));
     assert.equal(request.action, 'review');
+    reviewEditor.selection = new vscode.Selection(2, 0, 2, 0);
     noDiffs();
 
     // Accept and reject live above the change block, in the ordinary file.
@@ -163,6 +164,21 @@ async function scenario(repo, root, session) {
       'Accept/Reject actions did not appear above the change block');
     assert.deepEqual(await lensTitles(READING), ['✓ Accept', '✗ Reject', 'Reject with reason…']);
     noDiffs();
+
+    // A selection offers Drag+b above its first line, beside the review actions.
+    const beforePaste = (await readRequest()).id;
+    visible(READING).selection = new vscode.Selection(1, 2, 2, 0);
+    await waitFor(async () => (await lensTitles(READING)).includes('⤴ Paste to agent'),
+      'Paste to agent did not appear above the selection');
+    const selectionLens = (await vscode.commands.executeCommand('vscode.executeCodeLensProvider',
+      vscode.Uri.file(path.join(root, READING)))).find(lens => lens.command?.title === '⤴ Paste to agent');
+    assert.equal(selectionLens.range.start.line, 1);
+    await vscode.commands.executeCommand(selectionLens.command.command, ...(selectionLens.command.arguments || []));
+    await waitFor(async () => (await readRequest()).id !== beforePaste, 'Paste request was not written');
+    request = await readRequest();
+    assert.deepEqual([request.action, request.path, request.line, request.endLine], ['paste', READING, 2, 2]);
+    visible(READING).selection = new vscode.Selection(1, 0, 1, 0);
+    await waitFor(async () => (await lensTitles(READING)).length === 3, 'Paste to agent outlived the selection');
 
     // A decision must show at once, because Stvena is polled rather than pushed.
     const beforeAccept = (await readRequest()).id;

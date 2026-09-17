@@ -99,6 +99,9 @@ func (s *screenState) applyEditorRequest(request editor.Request) {
 	case "prompt":
 		s.applyEditorPrompt(request)
 		return
+	case "paste":
+		s.applyEditorPaste(request)
+		return
 	}
 	if request.Action == "context" {
 		if err := s.review.AddCapturedRange(s.projectView, request.Path, request.Line, request.EndLine); err != nil {
@@ -329,6 +332,9 @@ func (s *screenState) applyEditorPrompt(request editor.Request) {
 		s.ack(request, "refused", "Ask a question to send with the selection")
 		return
 	}
+	if !s.agentReady(request) {
+		return
+	}
 	code, err := s.review.CapturedRangeMessage(s.projectView, request.Path, request.Line, request.EndLine)
 	if err != nil {
 		s.ack(request, "refused", "Editor question: "+err.Error())
@@ -338,6 +344,37 @@ func (s *screenState) applyEditorPrompt(request editor.Request) {
 	s.ack(request, "applied",
 		fmt.Sprintf("Question about %s:%d–%d ready in the agent · press Enter to send",
 			request.Path, request.Line, request.EndLine))
+}
+
+// applyEditorPaste is the editor's Drag+b: the captured range goes into the
+// agent's input on its own, and the user writes the request around it there.
+func (s *screenState) applyEditorPaste(request editor.Request) {
+	if !s.agentReady(request) {
+		return
+	}
+	code, err := s.review.CapturedRangeMessage(s.projectView, request.Path, request.Line, request.EndLine)
+	if err != nil {
+		s.ack(request, "refused", "Editor selection: "+err.Error())
+		return
+	}
+	s.queueAgentDraft(code, "paste")
+	s.ack(request, "applied",
+		fmt.Sprintf("%s:%d–%d pasted into the agent · add your request there, then press Enter",
+			request.Path, request.Line, request.EndLine))
+}
+
+// agentReady refuses a handoff the paste would drop, so the editor can say why
+// instead of reporting a draft that never arrives.
+func (s *screenState) agentReady(request editor.Request) bool {
+	switch {
+	case s.exited || s.agentInput == nil:
+		s.ack(request, "refused", "No agent is running in Stvena · start one with stvena claude or stvena codex")
+	case s.agentName == "":
+		s.ack(request, "refused", "Direct paste supports stvena claude and stvena codex")
+	default:
+		return true
+	}
+	return false
 }
 
 // refreshIDE notices an editor extension connecting or disconnecting. IDE mode
