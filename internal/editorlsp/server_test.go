@@ -465,25 +465,31 @@ func TestAcceptWritesARequestAndFlipsTheLensImmediately(t *testing.T) {
 		t.Fatalf("request timestamp %s is outside Stvena's freshness window", request.UpdatedAt)
 	}
 
-	// The decision shows before Stvena confirms it, or the buttons look broken.
-	titles := lensTitles(t, c, r)
-	if len(titles) != 1 || !strings.Contains(titles[0], "Accepted") || !strings.Contains(titles[0], "…") {
-		t.Fatalf("lens titles = %v, want a pending accepted state", titles)
+	// A decided change leaves the editor at once, before Stvena confirms it.
+	if titles := lensTitles(t, c, r); len(titles) != 0 {
+		t.Fatalf("lens titles = %v, want the accepted change gone", titles)
 	}
-	_ = titles
 
-	// Stvena agrees: the pending marker goes away and the state stays.
-	publishReview(t, r, reviewWithHunk(true, false))
-	deadline = time.Now().Add(5 * time.Second)
-	for {
-		titles = lensTitles(t, c, r)
-		if len(titles) == 1 && strings.Contains(titles[0], "Accepted") && !strings.Contains(titles[0], "…") {
-			return
+	// Stvena agrees, and the change stays gone on every later descriptor.
+	for sequence := uint64(2); sequence <= 4; sequence++ {
+		accepted := reviewWithHunk(true, false)
+		accepted.Sequence = sequence
+		publishReview(t, r, accepted)
+		time.Sleep(2 * pollInterval)
+		if titles := lensTitles(t, c, r); len(titles) != 0 {
+			t.Fatalf("lens titles = %v after confirmation, want none", titles)
 		}
-		if time.Now().After(deadline) {
-			t.Fatalf("lens titles = %v, want a settled accepted state", titles)
-		}
-		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func TestRejectedChangeLeavesTheEditor(t *testing.T) {
+	r, source := project(t)
+	c := start(t, r)
+	openFile(c, r, source)
+	publishReview(t, r, reviewWithHunk(false, true))
+	awaitLiveReview(t, c, r)
+	if titles := lensTitles(t, c, r); len(titles) != 0 {
+		t.Fatalf("lens titles for a rejected change = %v, want none", titles)
 	}
 }
 

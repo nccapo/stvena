@@ -243,6 +243,10 @@ the change you just rejected. The queue therefore waits until every live agent
 is between turns, using the same `Stop` hook that drives agent attention. The
 review header shows `N rejected pending` while it waits.
 
+In the editor, an accepted or rejected block disappears as soon as you click;
+undo it from Stvena. Only one Stvena per project talks to the editor: if you
+start a second one, the newest takes over and the older one says so.
+
 **Without hooks there is no turn boundary to wait for.** Three seconds of
 silence means only that nothing was printed, never that a turn ended, so Stvena
 never applies the queue on its own for an unhooked agent. Use **D → Enter** when
@@ -471,10 +475,10 @@ marker labels; diagnostics, code actions and the status item need neither.
 | In the editor | How it arrives |
 | --- | --- |
 | The working file opens at the changed or read line, terminal keeps focus | `window/showDocument` — **not in Zed 1.19**, see below |
-| ✓ Accept · ✗ Reject above a change block | Code lens |
+| ✓ Accept · ✗ Reject above a change block; gone once decided | Code lens |
 | `✎ agent edit`, `👁 read (claude)`, `◆ reviewing` labels | Inlay hints |
 | Every unreviewed block listed, with an underline and a scrollbar mark | Information diagnostics |
-| Review in Stvena, Add to context, Ask the agent, Accept/Reject file, Apply rejections, Pause/Resume | Code actions (`source.stvena`) |
+| Paste to agent, Review in Stvena, Add to context, Accept/Reject file, Apply rejections, Pause/Resume | Code actions (`source.stvena`) |
 | `following · 3 unreviewed · 1 rejection waiting for turn end` | `$/progress` |
 
 Zed 1.19 does not implement `window/showDocument`, so it does not open files for

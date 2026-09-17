@@ -70,6 +70,7 @@ The JSON contains:
 | `sequence` | Advances when the captured tree changes; starts at zero |
 | `active` | False after normal watcher shutdown |
 | `updatedAt` | RFC 3339 UTC heartbeat; treat older than 30 seconds as disconnected |
+| `startedAt` | Optional RFC 3339 UTC time this Stvena process connected; see [one owner per project](#one-owner-per-project) |
 | `error` | Optional capture error; don't follow stale edits while present |
 | `changedAt` | Optional timestamp of the latest changed capture, unchanged by heartbeats |
 | `activity` | Optional latest reported read, expires after 15 seconds |
@@ -125,6 +126,18 @@ that a specific agent made the change. Only the latest followed location is mark
 
 ## Review bridge and editor requests
 
+### One owner per project
+
+Two Stvena processes can run in the same project. Both descriptors are owned by
+one of them at a time, or the editor would show each one's state in turn.
+Before writing, Stvena reads the descriptor and steps back while it belongs to
+another session that is `active`, was updated within 15 seconds, and has a
+later `startedAt`. The newest process wins. The older one says so in its
+notice, and resumes when the newer one exits (it writes `active: false`) or
+stops writing for 15 seconds. A descriptor without `startedAt` counts as older.
+Editors need do nothing: requests carry the owner's `session`, and only that
+Stvena acts on them.
+
 Review state uses a separate source-only `stvena-review.json` descriptor in the
 resolved descriptor directory. It contains no patch or source text; Stvena remains the
 authoritative diff surface. The version 1 fields are:
@@ -132,6 +145,7 @@ authoritative diff surface. The version 1 fields are:
 | Field | Meaning |
 | --- | --- |
 | `version`, `session`, `sequence`, `active`, `updatedAt`, `changedAt` | Versioned session identity, change counter, lifecycle, heartbeat, and last focus/count change |
+| `startedAt` | Optional time this Stvena process connected; see [one owner per project](#one-owner-per-project) |
 | `focus` | Optional captured `tree`, review `source`, repository-relative `path`, and inclusive one-based `line` / `endLine` |
 | `unreviewedFiles`, `unreviewedHunks` | Remaining review work in the live cumulative session view |
 | `newerBatches` | Observed timeline batches newer than the currently pinned batch |

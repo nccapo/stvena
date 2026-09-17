@@ -99,6 +99,16 @@ func (s *server) hunkState(file *editor.ReviewFile, hunk *editor.ReviewHunk) (re
 	return reviewed, rejected, false
 }
 
+// decided reports whether a change has been accepted or rejected, here or in
+// Stvena. A file-level decision covers every block in the file.
+func (s *server) decided(file *editor.ReviewFile, hunk *editor.ReviewHunk) bool {
+	if reviewed, rejected, _ := s.hunkState(file, nil); reviewed || rejected {
+		return true
+	}
+	reviewed, rejected, _ := s.hunkState(file, hunk)
+	return reviewed || rejected
+}
+
 // lineCount reports how many lines a known buffer has, so ranges never point
 // past the end of the file the editor is showing.
 func (doc *document) lineCount() int {
@@ -155,39 +165,24 @@ func (s *server) lensesFor(doc *document) []map[string]any {
 		line := clampLine(hunk.Start-1, count)
 		at := lspRange{Start: position{Line: line}, End: position{Line: line}}
 		ref := target{Path: file.Path, HunkID: hunk.ID, Line: hunk.Start, EndLine: hunk.End}
-		reviewed, rejected, waiting := s.hunkState(file, hunk)
-		suffix := ""
-		if waiting {
-			suffix = " …"
+		// A decided change is done: it leaves the editor as soon as it is
+		// clicked. Undo stays in Stvena.
+		if s.decided(file, hunk) {
+			continue
 		}
 		add := func(title, name string) {
 			out = append(out, map[string]any{"range": at,
 				"command": command{Title: title, Command: name, Arguments: []target{ref}}})
 		}
-		switch {
-		case rejected:
-			title := "✗ Rejected" + suffix + " · Undo"
-			if file.Rejected {
-				title = "✗ Rejected" + suffix + " · Undo file rejection"
-			}
-			if supports(s.review, "undo-reject") {
-				add(title, "stvena.undoReject")
-			}
-		case reviewed:
-			if supports(s.review, "unaccept") {
-				add("✓ Accepted"+suffix+" · Undo", "stvena.unaccept")
-			}
-		default:
-			if supports(s.review, "accept") {
-				add("✓ Accept"+suffix, "stvena.accept")
-			}
-			if supports(s.review, "reject") {
-				// An added file cannot have one block reverted on its own.
-				if file.Status == "A" {
-					add("✗ Reject file"+suffix, "stvena.rejectFile")
-				} else {
-					add("✗ Reject"+suffix, "stvena.reject")
-				}
+		if supports(s.review, "accept") {
+			add("✓ Accept", "stvena.accept")
+		}
+		if supports(s.review, "reject") {
+			// An added file cannot have one block reverted on its own.
+			if file.Status == "A" {
+				add("✗ Reject file", "stvena.rejectFile")
+			} else {
+				add("✗ Reject", "stvena.reject")
 			}
 		}
 	}
@@ -332,7 +327,7 @@ func markerLabel(m *marker) string {
 }
 
 // publishDiagnostics makes the editor's diagnostics panel the review queue: one
-// Information item per unreviewed block, one Hint per queued rejection.
+// Information item per undecided block. Decided blocks are done and not listed.
 func (s *server) publishDiagnostics(now time.Time) {
 	if s.bridge == nil {
 		return
@@ -345,13 +340,7 @@ func (s *server) publishDiagnostics(now time.Time) {
 			items := []map[string]any{}
 			for j := range file.Hunks {
 				hunk := &file.Hunks[j]
-				reviewed, rejected, _ := s.hunkState(file, hunk)
-				severity, message := 3, "Stvena: unreviewed agent change"
-				switch {
-				case rejected:
-					severity = 4
-					message = "Stvena: rejected, reverts " + appliesAtText(s.review.Pending)
-				case reviewed:
+				if s.decided(file, hunk) {
 					continue
 				}
 				items = append(items, map[string]any{
@@ -359,7 +348,7 @@ func (s *server) publishDiagnostics(now time.Time) {
 						Start: position{Line: hunk.Start - 1},
 						End:   position{Line: hunk.End},
 					},
-					"severity": severity, "source": "stvena", "message": message,
+					"severity": 3, "source": "stvena", "message": "Stvena: unreviewed agent change",
 				})
 			}
 			if len(items) > 0 {
@@ -384,20 +373,6 @@ func (s *server) publishDiagnostics(now time.Time) {
 		}
 		_ = s.conn.notify("textDocument/publishDiagnostics", map[string]any{"uri": uri, "diagnostics": []any{}})
 		delete(s.published, uri)
-	}
-}
-
-func appliesAtText(pending *editor.PendingRejections) string {
-	if pending == nil {
-		return "when the agent finishes its turn"
-	}
-	switch pending.AppliesAt {
-	case "now":
-		return "now"
-	case "manual":
-		return "when you apply the queue"
-	default:
-		return "when the agent finishes its turn"
 	}
 }
 

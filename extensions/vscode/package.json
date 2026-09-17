@@ -232,24 +232,6 @@
           "light": "#b8950010",
           "highContrast": "#cca70024"
         }
-      },
-      {
-        "id": "stvena.reviewAcceptedBackground",
-        "description": "Background of an accepted agent change.",
-        "defaults": {
-          "dark": "#89d18510",
-          "light": "#3d8a3d0d",
-          "highContrast": "#89d18520"
-        }
-      },
-      {
-        "id": "stvena.reviewRejectedBackground",
-        "description": "Background of a rejected agent change.",
-        "defaults": {
-          "dark": "#f1707018",
-          "light": "#c5303012",
-          "highContrast": "#f1707028"
-        }
       }
     ],
     "configuration": {

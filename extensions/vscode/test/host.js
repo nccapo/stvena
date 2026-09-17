@@ -180,23 +180,23 @@ async function scenario(repo, root, session) {
     visible(READING).selection = new vscode.Selection(1, 0, 1, 0);
     await waitFor(async () => (await lensTitles(READING)).length === 3, 'Paste to agent outlived the selection');
 
-    // A decision must show at once, because Stvena is polled rather than pushed.
+    // A decided change leaves at once, because Stvena is polled rather than pushed.
     const beforeAccept = (await readRequest()).id;
     await vscode.commands.executeCommand('stvena.acceptHunk',
       { root: repo.root, path: READING, hunkId: HUNK, start: 3, end: 4 });
-    assert.deepEqual(await lensTitles(READING), ['✓ Accepted …', 'Undo'],
-      'Accepting did not update the editor before Stvena confirmed it');
+    assert.deepEqual(await lensTitles(READING), [],
+      'Accepting did not clear the change before Stvena confirmed it');
     await waitFor(async () => (await readRequest()).id !== beforeAccept, 'Accept request was not written');
     request = await readRequest();
     assert.equal(request.action, 'accept');
     assert.equal(request.hunkId, HUNK);
     assert.equal(request.path, READING);
 
-    // Once Stvena agrees, the pending marker clears.
-    await writeReview(undefined, reviewFile({ reviewed: true }));
-    await waitFor(async () => (await lensTitles(READING)).includes('✓ Accepted'),
-      'Confirmed acceptance never settled');
-    assert.deepEqual(await lensTitles(READING), ['✓ Accepted', 'Undo']);
+    // Once Stvena agrees, the change stays gone.
+    await writeReview(undefined, { ...reviewFile({ reviewed: true }), lastRequest: { id: request.id,
+      action: 'accept', status: 'applied', at: new Date().toISOString() } });
+    await new Promise(resolve => setTimeout(resolve, 1800));
+    assert.deepEqual(await lensTitles(READING), [], 'A confirmed acceptance came back');
 
     // A rejection Stvena refuses must roll back rather than linger.
     await writeReview(undefined, reviewFile());
@@ -204,7 +204,7 @@ async function scenario(repo, root, session) {
     const beforeReject = (await readRequest()).id;
     await vscode.commands.executeCommand('stvena.rejectHunk',
       { root: repo.root, path: READING, hunkId: HUNK, start: 3, end: 4 });
-    assert.deepEqual(await lensTitles(READING), ['✗ Rejected …', 'Undo']);
+    assert.deepEqual(await lensTitles(READING), []);
     await waitFor(async () => (await readRequest()).id !== beforeReject, 'Reject request was not written');
     const refused = await readRequest();
     assert.equal(refused.action, 'reject');
@@ -214,20 +214,11 @@ async function scenario(repo, root, session) {
     await waitFor(async () => (await lensTitles(READING)).includes('✓ Accept'),
       'A refused rejection stayed on screen');
 
-    // A whole-file rejection offers an explicit, token-bound Undo action.
+    // A whole-file rejection clears the file.
     const wholeFile = reviewFile({ rejected: true });
     wholeFile.files[0].rejected = true;
     await writeReview(undefined, wholeFile);
-    await waitFor(async () => (await lensTitles(READING)).includes('Undo file rejection'),
-      'Whole-file Undo did not describe its scope');
-    const beforeUndoFile = (await readRequest()).id;
-    const fileLenses = await vscode.commands.executeCommand('vscode.executeCodeLensProvider',
-      vscode.Uri.file(path.join(root, READING)));
-    const undoFile = fileLenses.find(lens => lens.command?.title === 'Undo file rejection').command;
-    await vscode.commands.executeCommand(undoFile.command, ...undoFile.arguments);
-    await waitFor(async () => (await readRequest()).id !== beforeUndoFile, 'Whole-file Undo was not sent');
-    assert.equal((await readRequest()).action, 'undo-reject');
-    assert.equal((await readRequest()).hunkId, HUNK);
+    await waitFor(async () => (await lensTitles(READING)).length === 0, 'A rejected file kept its actions');
 
     const addition = reviewFile();
     addition.files[0].status = 'A';
@@ -238,8 +229,8 @@ async function scenario(repo, root, session) {
     // A queued rejection can be applied from the editor.
     await writeReview(undefined, { ...reviewFile({ rejected: true }),
       pendingRejections: { count: 1, appliesAt: 'turn-end', reason: 'claude 1 is running' } });
-    await waitFor(async () => (await lensTitles(READING)).includes('✗ Rejected'),
-      'Queued rejection was not shown');
+    await waitFor(async () => (await lensTitles(READING)).length === 0,
+      'A queued rejection kept its actions');
     const beforeApply = (await readRequest()).id;
     await vscode.commands.executeCommand('stvena.applyRejections');
     await waitFor(async () => (await readRequest()).id !== beforeApply, 'Apply request was not written');

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -32,6 +33,9 @@ func (s *screenState) publishEditorReview() bool {
 	})
 	if err != nil && !s.editorReviewReported {
 		s.review.Notice = "Editor review bridge unavailable: " + err.Error()
+		if errors.Is(err, editor.ErrNotOwner) {
+			s.review.Notice = "Another Stvena in this project is connected to the editor · editor actions go to that one"
+		}
 		s.editorReviewReported = true
 		return true
 	}

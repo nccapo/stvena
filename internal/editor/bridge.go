@@ -23,6 +23,7 @@ type State struct {
 	Sequence  uint64    `json:"sequence"`
 	Active    bool      `json:"active"`
 	UpdatedAt time.Time `json:"updatedAt"`
+	StartedAt time.Time `json:"startedAt,omitempty"`
 	Error     string    `json:"error,omitempty"`
 	Files     []Change  `json:"files"`
 	Activity  *Activity `json:"activity,omitempty"`
@@ -56,11 +57,14 @@ func Open(saved *session.Session) (*Publisher, error) {
 		ws:           saved.WS,
 		previous:     saved.Baseline,
 		activityPath: ActivityPath(saved),
-		state:        State{Version: 1, Session: saved.ID, Active: true, Files: []Change{}},
+		state:        State{Version: 1, Session: saved.ID, Active: true, StartedAt: time.Now().UTC(), Files: []Change{}},
 	}, nil
 }
 
 func (p *Publisher) Publish(tree string, captureErr error) error {
+	if ownedByNewer(p.path, p.state.Session, p.state.StartedAt) {
+		return ErrNotOwner
+	}
 	next := p.state
 	previous := p.previous
 	next.Error = ""
