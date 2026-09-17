@@ -2,7 +2,7 @@
   "name": "stvena-live",
   "displayName": "Stvena Live",
   "description": "Accept or reject agent changes in your editor, and follow agent reads and edits with live source navigation.",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "icon": "media/icon.png",
   "publisher": "nccapo",
   "license": "MIT",
@@ -38,6 +38,12 @@
   },
   "contributes": {
     "commands": [
+      {
+        "command": "stvena.pasteSelection",
+        "title": "Stvena: Paste Selection to Agent",
+        "shortTitle": "Paste to Agent",
+        "icon": "$(send)"
+      },
       {
         "command": "stvena.toggleFollow",
         "title": "Stvena: Pause / Resume Following",
@@ -132,24 +138,28 @@
       ],
       "editor/context": [
         {
-          "command": "stvena.askAgent",
+          "command": "stvena.pasteSelection",
           "group": "stvena@0"
         },
         {
-          "command": "stvena.reviewInStvena",
+          "command": "stvena.askAgent",
           "group": "stvena@1"
         },
         {
-          "command": "stvena.addSelectionToContext",
+          "command": "stvena.reviewInStvena",
           "group": "stvena@2"
         },
         {
-          "command": "stvena.acceptFile",
+          "command": "stvena.addSelectionToContext",
           "group": "stvena@3"
         },
         {
-          "command": "stvena.rejectFile",
+          "command": "stvena.acceptFile",
           "group": "stvena@4"
+        },
+        {
+          "command": "stvena.rejectFile",
+          "group": "stvena@5"
         }
       ],
       "commandPalette": [
@@ -176,6 +186,13 @@
         {
           "command": "stvena.undoRejectHunk",
           "when": "false"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "stvena.pasteSelection",
+          "when": "stvena.canPasteSelection && editorHasSelection",
+          "group": "navigation"
         }
       ]
     },
@@ -215,24 +232,6 @@
           "light": "#b8950010",
           "highContrast": "#cca70024"
         }
-      },
-      {
-        "id": "stvena.reviewAcceptedBackground",
-        "description": "Background of an accepted agent change.",
-        "defaults": {
-          "dark": "#89d18510",
-          "light": "#3d8a3d0d",
-          "highContrast": "#89d18520"
-        }
-      },
-      {
-        "id": "stvena.reviewRejectedBackground",
-        "description": "Background of a rejected agent change.",
-        "defaults": {
-          "dark": "#f1707018",
-          "light": "#c5303012",
-          "highContrast": "#f1707028"
-        }
       }
     ],
     "configuration": {
@@ -242,6 +241,11 @@
           "type": "boolean",
           "default": true,
           "description": "Show Accept and Reject actions above each agent change block."
+        },
+        "stvena.showSelectionCodeLens": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show Paste to agent, Ask and Add to context above a selection in a file Stvena is reviewing, like Stvena's Drag+b."
         }
       }
     },

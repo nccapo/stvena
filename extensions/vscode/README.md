@@ -78,14 +78,15 @@ cannot do. See the [changelog](CHANGELOG.md).
 | Where | Action |
 | --- | --- |
 | Above each change block | **✓ Accept**, **✗ Reject**, **Reject with reason…** |
-| Above a decided block | **✓ Accepted** / **✗ Rejected**, each with **Undo** |
 | Editor context menu | Accept or reject every change in the file |
 | Status bar | Pending rejections; click to apply them now |
-| Explorer | A badge per file: blocks left to review, ✓ reviewed, ✗ rejected |
+| Explorer | A badge per file with the blocks left to review |
+
+Once you accept or reject a block, its highlight and actions leave the editor at
+once; a decision is done. To take one back, undo it in Stvena.
 
 New files show **Reject file**, because rejecting an addition removes the whole
-file. After a whole-file rejection, **Undo file rejection** on any affected
-block cancels that file's queued rejection. **Apply Rejected Changes Now**
+file. **Apply Rejected Changes Now**
 reports the confirmed result, including failed reverts and any changes left
 in the staging index.
 
@@ -140,6 +141,11 @@ line or selected range. It is persistent while that review location is active;
 Stvena still renders the diff, and the extension opens only the ordinary working
 file. From an editor context menu or the Command Palette:
 
+- **Stvena: Paste Selection to Agent** puts the captured lines into the agent's
+  input, like `b` in Stvena, without sending them. A selection also shows
+  **⤴ Paste to agent · Ask… · Add to context** above its first line, and a send
+  button in the editor title bar. Set `stvena.showSelectionCodeLens` to `false`
+  to hide the actions above the selection.
 - **Stvena: Review This Line in Stvena** opens the corresponding captured change
   in the TUI, falling back to the captured project file when it is unchanged.
 - **Stvena: Add Selection to Context** adds the matching immutable captured lines

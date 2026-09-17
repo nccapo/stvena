@@ -223,7 +223,8 @@ subcommand:
   following is on and the target buffer is not dirty, send `window/showDocument`.
 - Commands (`stvena.accept`, `stvena.reject`, `stvena.undoReject`,
   `stvena.acceptFile`, `stvena.rejectFile`, `stvena.applyRejections`,
-  `stvena.review`, `stvena.context`, `stvena.prompt`, `stvena.toggleFollow`,
+  `stvena.review`, `stvena.context`, `stvena.paste`, `stvena.prompt` (a bare prompt
+  is sent as a paste), `stvena.toggleFollow`,
   `stvena.nextUnreviewed`) write `stvena-request.json` and optimistically update
   the lens text, exactly as the VS Code extension does; roll back on a refused
   `lastRequest`.

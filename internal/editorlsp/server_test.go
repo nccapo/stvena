@@ -465,25 +465,31 @@ func TestAcceptWritesARequestAndFlipsTheLensImmediately(t *testing.T) {
 		t.Fatalf("request timestamp %s is outside Stvena's freshness window", request.UpdatedAt)
 	}
 
-	// The decision shows before Stvena confirms it, or the buttons look broken.
-	titles := lensTitles(t, c, r)
-	if len(titles) != 1 || !strings.Contains(titles[0], "Accepted") || !strings.Contains(titles[0], "…") {
-		t.Fatalf("lens titles = %v, want a pending accepted state", titles)
+	// A decided change leaves the editor at once, before Stvena confirms it.
+	if titles := lensTitles(t, c, r); len(titles) != 0 {
+		t.Fatalf("lens titles = %v, want the accepted change gone", titles)
 	}
-	_ = titles
 
-	// Stvena agrees: the pending marker goes away and the state stays.
-	publishReview(t, r, reviewWithHunk(true, false))
-	deadline = time.Now().Add(5 * time.Second)
-	for {
-		titles = lensTitles(t, c, r)
-		if len(titles) == 1 && strings.Contains(titles[0], "Accepted") && !strings.Contains(titles[0], "…") {
-			return
+	// Stvena agrees, and the change stays gone on every later descriptor.
+	for sequence := uint64(2); sequence <= 4; sequence++ {
+		accepted := reviewWithHunk(true, false)
+		accepted.Sequence = sequence
+		publishReview(t, r, accepted)
+		time.Sleep(2 * pollInterval)
+		if titles := lensTitles(t, c, r); len(titles) != 0 {
+			t.Fatalf("lens titles = %v after confirmation, want none", titles)
 		}
-		if time.Now().After(deadline) {
-			t.Fatalf("lens titles = %v, want a settled accepted state", titles)
-		}
-		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func TestRejectedChangeLeavesTheEditor(t *testing.T) {
+	r, source := project(t)
+	c := start(t, r)
+	openFile(c, r, source)
+	publishReview(t, r, reviewWithHunk(false, true))
+	awaitLiveReview(t, c, r)
+	if titles := lensTitles(t, c, r); len(titles) != 0 {
+		t.Fatalf("lens titles for a rejected change = %v, want none", titles)
 	}
 }
 
@@ -718,6 +724,47 @@ func TestActionsAndLensesAreGatedOnAdvertisedFeatures(t *testing.T) {
 	})
 	if _, err := os.Stat(r.requestPath); !os.IsNotExist(err) {
 		t.Fatalf("a request was written for an unsupported action (stat err %v)", err)
+	}
+}
+
+func TestSelectionPastesToAgent(t *testing.T) {
+	r, source := project(t)
+	c := start(t, r)
+	openFile(c, r, source)
+	publishReview(t, r, reviewWithHunk(false, false))
+	awaitLenses(t, c, r, 2)
+
+	offered := codeActions(t, c, r, 3)
+	if offered["stvena.paste"] != "Stvena: Paste Selection to Agent" {
+		t.Fatalf("actions = %v, want a paste action", offered)
+	}
+	// LSP cannot ask for a question, so an unanswerable prompt is not offered.
+	if _, ok := offered["stvena.prompt"]; ok {
+		t.Fatalf("actions = %v, want no question-less prompt", offered)
+	}
+
+	// Both the new command and an older bare prompt binding write a paste.
+	for _, name := range []string{"stvena.paste", "stvena.prompt"} {
+		os.Remove(r.requestPath)
+		c.call("workspace/executeCommand", map[string]any{
+			"command":   name,
+			"arguments": []any{map[string]any{"path": "app.go", "line": 2, "endLine": 4}},
+		})
+		var request editor.Request
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			data, err := os.ReadFile(r.requestPath)
+			if err == nil && json.Unmarshal(data, &request) == nil {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("%s wrote no request (last error %v)", name, err)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		if request.Action != "paste" || request.Path != "app.go" || request.Line != 2 || request.EndLine != 4 {
+			t.Fatalf("%s wrote %+v, want a paste of app.go:2–4", name, request)
+		}
 	}
 }
 

@@ -5,6 +5,7 @@ const path = require('node:path');
 const bridge = require('./bridge');
 const activity = require('./activity');
 const reviewUI = require('./review');
+const selectionUI = require('./selection');
 
 function activate(context) {
   if (!vscode.workspace.isTrusted) return;
@@ -37,6 +38,17 @@ function activate(context) {
     const repo = repos.find(candidate => candidate.root === target.root);
     if (!repo) throw new Error('No active Stvena review owns this file.');
     return bridge.writeRequest(repo, request);
+  });
+  // Handoffs to the agent are pasted by Stvena after it reads the request, so
+  // whether one arrived is only known from its acknowledgement.
+  const handoffs = new Map(); // request id -> sent at
+  const selection = selectionUI.createSelectionActions(vscode, context, editor => {
+    try {
+      const target = activeEditorTarget(editor);
+      return bridge.supports(target.repo.review, 'paste') ? target : undefined;
+    } catch {
+      return undefined;
+    }
   });
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 10);
   status.command = 'stvena.toggleFollow';
@@ -105,8 +117,7 @@ function activate(context) {
     }
   }
 
-  function activeEditorTarget() {
-    const editor = vscode.window.activeTextEditor;
+  function activeEditorTarget(editor = vscode.window.activeTextEditor) {
     if (!editor || editor.document.uri.scheme !== 'file') throw new Error('Open a repository file first.');
     if (editor.document.isDirty) throw new Error('Save the file before sending its captured range to Stvena.');
     const owns = (root, file) => {
@@ -123,6 +134,28 @@ function activate(context) {
     let endLine = selection.end.line + 1;
     if (!selection.isEmpty && selection.end.character === 0 && endLine > line) endLine--;
     return { repo, path: relative, line, endLine: Math.max(line, endLine) };
+  }
+
+  // handOff writes a request that ends in the agent's input and reports what
+  // Stvena did with it once the acknowledgement arrives.
+  async function handOff(request) {
+    const target = activeEditorTarget();
+    const written = await bridge.writeRequest(target.repo, { ...request, path: target.path,
+      line: target.line, endLine: target.endLine });
+    handoffs.set(written.id, Date.now());
+  }
+
+  function reportHandoffs() {
+    for (const repo of repos) {
+      const last = repo.review?.lastRequest;
+      if (!last || !handoffs.has(last.id)) continue;
+      handoffs.delete(last.id);
+      if (last.status === 'refused') void vscode.window.showWarningMessage(`Stvena: ${last.message || 'the selection was not sent.'}`);
+      else void vscode.window.showInformationMessage(`Stvena: ${last.message || 'the selection is in the agent\'s input.'}`);
+    }
+    for (const [id, at] of handoffs) {
+      if (Date.now() - at > 10000) handoffs.delete(id);
+    }
   }
 
   async function fileDecision(action) {
@@ -252,6 +285,8 @@ function activate(context) {
       markers.refresh(row => rows.some(current => current.repo.root === row.repo.root &&
         current.kind === row.kind && current.file.path === row.file.path && current.at === row.at && current.id === row.id));
       decisions.update(repos);
+      reportHandoffs();
+      selection.refresh();
       changes.fire();
       updateStatus();
       if (following && follow) await show(follow, true);
@@ -296,9 +331,14 @@ function activate(context) {
       });
       if (!question || !question.trim()) return;
       try {
-        await bridge.writeRequest(target.repo, { action: 'prompt', path: target.path,
-          line: target.line, endLine: target.endLine, text: question });
-        void vscode.window.showInformationMessage('Stvena: question ready in the agent · press Enter there to send it.');
+        await handOff({ action: 'prompt', text: question });
+      } catch (error) {
+        void vscode.window.showErrorMessage(`Stvena: ${error.message}`);
+      }
+    }),
+    vscode.commands.registerCommand('stvena.pasteSelection', async () => {
+      try {
+        await handOff({ action: 'paste' });
       } catch (error) {
         void vscode.window.showErrorMessage(`Stvena: ${error.message}`);
       }

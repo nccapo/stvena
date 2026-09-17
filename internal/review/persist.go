@@ -59,6 +59,7 @@ func (s *State) Load(ws repo.Workspace) error {
 	}
 	s.Attachments, s.ContextQuestion, s.Rejections = saved.Attachments, saved.ContextQuestion, saved.Rejections
 	s.reviewed, s.Hunks, s.History, s.Comments, s.LastCheck = saved.Reviewed, saved.Hunks, saved.History, saved.Comments, saved.LastCheck
+	s.marksBase, s.marksStamp = marks{reviewed: saved.Reviewed, hunks: saved.Hunks}.clone(), stampOf(s.savePath)
 	if saved.Checkpoint != nil {
 		c := saved.Checkpoint
 		if err := s.StartCheckpoint(c.Snapshot); err != nil {
@@ -115,7 +116,23 @@ func (s *State) Save() error {
 			}
 		}
 	}
-	return session.AtomicJSON(s.savePath, Saved{Checkpoint: s.Checkpoint, Reviewed: s.reviewed, Hunks: s.Hunks, History: s.History, Comments: s.Comments, LastCheck: s.LastCheck, Attachments: s.Attachments, ContextQuestion: s.ContextQuestion, Rejections: s.Rejections})
+	// Review marks are shared with other Stvena sessions in the project: write
+	// this session's changes on top of theirs rather than over them. The lock
+	// keeps another session from saving between the read and the write.
+	defer lockFile(s.savePath + ".lock")()
+	if saved, ok := readSaved(s.savePath); ok {
+		s.History = mergeHistory(s.History, saved.History)
+		s.mergeMarks(marks{reviewed: saved.Reviewed, hunks: saved.Hunks})
+	} else {
+		s.marksBase = marks{}
+	}
+	err := session.AtomicJSON(s.savePath, Saved{Checkpoint: s.Checkpoint, Reviewed: s.reviewed, Hunks: s.Hunks, History: s.History, Comments: s.Comments, LastCheck: s.LastCheck, Attachments: s.Attachments, ContextQuestion: s.ContextQuestion, Rejections: s.Rejections})
+	if err != nil {
+		return err
+	}
+	s.marksBase = marks{reviewed: s.reviewed, hunks: s.Hunks}.clone()
+	s.marksStamp = stampOf(s.savePath)
+	return nil
 }
 func (s *State) Remember(f diffview.File) {
 	if s.History == nil {

@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.5.0
+
+- Accepting or rejecting a change block removes it from the editor at once:
+  no more **✓ Accepted** / **✗ Rejected** lines, highlights or Explorer badges
+  for decided blocks. Undo is in Stvena. The accepted and rejected background
+  colours are gone with them.
+- Stop an accepted change flipping back to **✓ Accept** / **✗ Reject** every few
+  seconds when two Stvena sessions run in the same project. That needs the
+  matching Stvena, which lets only the newest session publish to the editor.
+
+- Paste a selection to the agent, like Drag+b in Stvena. A selection in a
+  reviewed file shows **⤴ Paste to agent · Ask… · Add to context** above its
+  first line, the same way ✓ Accept / ✗ Reject are shown, plus a send button in
+  the editor title bar. The actions appear once the selection stops moving and
+  stay put while you extend it. It needs a Stvena build that advertises `paste`.
+- Say when a question or paste did not reach the agent (for example, no agent
+  is running) instead of reporting it as ready.
+
 ## 0.4.1
 
 - Stop the editor tab, Explorer badge and ✓ Accept / ✗ Reject buttons from

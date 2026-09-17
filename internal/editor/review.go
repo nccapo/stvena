@@ -72,6 +72,7 @@ type ReviewState struct {
 	Sequence        uint64             `json:"sequence"`
 	Active          bool               `json:"active"`
 	UpdatedAt       time.Time          `json:"updatedAt"`
+	StartedAt       time.Time          `json:"startedAt,omitempty"`
 	ChangedAt       time.Time          `json:"changedAt,omitempty"`
 	Focus           *ReviewFocus       `json:"focus,omitempty"`
 	UnreviewedFiles int                `json:"unreviewedFiles"`
@@ -98,7 +99,7 @@ type ReviewUpdate struct {
 }
 
 // Features lists the request actions this build accepts.
-var Features = []string{"review", "context", "accept", "unaccept", "reject", "undo-reject", "apply-rejections", "next-unreviewed", "prompt"}
+var Features = []string{"review", "context", "accept", "unaccept", "reject", "undo-reject", "apply-rejections", "next-unreviewed", "prompt", "paste"}
 
 // Protocol limits. A very large change set is reported truncated rather than
 // written in full: the descriptor is polled, not streamed.
@@ -125,10 +126,15 @@ type ReviewPublisher struct {
 func OpenReview(saved *session.Session) (*ReviewPublisher, error) {
 	dir := saved.WS.DescriptorDir()
 	return &ReviewPublisher{path: filepath.Join(dir, "stvena-review.json"), session: saved.ID,
-		state: ReviewState{Version: 1, Session: saved.ID, Active: true}}, nil
+		state: ReviewState{Version: 1, Session: saved.ID, Active: true, StartedAt: time.Now().UTC()}}, nil
 }
 
 func (p *ReviewPublisher) Publish(u ReviewUpdate) error {
+	if ownedByNewer(p.path, p.session, p.state.StartedAt) {
+		// Write in full as soon as this session owns the descriptor again.
+		p.writtenAt = time.Time{}
+		return ErrNotOwner
+	}
 	next := p.state
 	next.Features = Features
 	if u.Focus != nil {

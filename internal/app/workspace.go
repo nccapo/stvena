@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -115,6 +116,11 @@ func watchSnapshots(ws repo.Workspace, rootErr error, saved *session.Session, ev
 		}
 		if publisher != nil {
 			bridgeErr = publisher.Publish(tree, err)
+		}
+		// Stepping back for a newer Stvena is not a failure; the review
+		// bridge says so once.
+		if errors.Is(bridgeErr, editor.ErrNotOwner) {
+			bridgeErr = nil
 		}
 		if bridgeErr != nil && !bridgeReported {
 			select {

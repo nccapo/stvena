@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/nccapo/stvena/internal/editor"
@@ -60,7 +61,7 @@ func (s *server) executeCommand(msg *message) {
 		}
 		s.show(s.latest, false)
 		return
-	case "stvena.review", "stvena.context", "stvena.prompt", "stvena.nextUnreviewed":
+	case "stvena.review", "stvena.context", "stvena.prompt", "stvena.paste", "stvena.nextUnreviewed":
 		s.sendRequest(params.Command, ref, now)
 		return
 	}
@@ -82,8 +83,14 @@ func (s *server) sendRequest(name string, ref target, now time.Time) {
 		"stvena.review":         "review",
 		"stvena.context":        "context",
 		"stvena.prompt":         "prompt",
+		"stvena.paste":          "paste",
 		"stvena.nextUnreviewed": "next-unreviewed",
 	}[name]
+	// Stvena refuses a question with no text, and LSP cannot ask for one, so a
+	// bare prompt (an older binding) is a paste.
+	if action == "prompt" && strings.TrimSpace(ref.Text) == "" {
+		action = "paste"
+	}
 	if action != "next-unreviewed" && !s.usable(ref.Path) {
 		return
 	}
@@ -98,9 +105,9 @@ func (s *server) sendRequest(name string, ref target, now time.Time) {
 	case "context":
 		s.showMessage(3, fmt.Sprintf("Stvena: sent %s:%d–%d to the context tray.", ref.Path, ref.Line, ref.EndLine))
 	case "prompt":
-		// LSP has no text prompt, so the range goes to the agent's input with an
-		// empty question for the user to finish and send.
-		s.showMessage(3, "Stvena: the selected range is in the agent's input · type your question there and press Enter.")
+		s.showMessage(3, "Stvena: your question and the selected range are in the agent's input · press Enter there to send.")
+	case "paste":
+		s.showMessage(3, fmt.Sprintf("Stvena: pasted %s:%d–%d into the agent · add your request there and press Enter.", ref.Path, ref.Line, ref.EndLine))
 	case "next-unreviewed":
 		s.showMessage(3, "Stvena: moved to the next unreviewed file.")
 	}

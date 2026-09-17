@@ -106,7 +106,13 @@ type State struct {
 	ConfirmAction, ConfirmDetail      string
 	savePath                          string
 	retained                          map[string]bool
-	ws                                repo.Workspace
+	// Shared review marks: what reviews.json held when this session last read
+	// or wrote it, and which marks this session has seen apply to its view.
+	marksBase  marks
+	marksStamp fileStamp
+	seenFiles  map[string][32]byte
+	seenHunks  map[string]bool
+	ws         repo.Workspace
 }
 
 // GitBacked reports whether this review runs against the user's own Git
@@ -154,36 +160,66 @@ func (s *State) Update(snapshot diffview.Snapshot) {
 	if s.Source == "project" {
 		return
 	}
-	// Once a reviewed file changes, it needs review even if later reverted.
-	for _, f := range snapshot.Files {
-		if old, ok := s.reviewed[f.Key()]; ok && old != fingerprint(f) {
-			delete(s.reviewed, f.Key())
-		}
-	}
-	active := map[string]bool{}
-	for _, f := range snapshot.Files {
-		active[f.Key()] = true
-	}
-	for key := range s.reviewed {
-		if s.keyBelongsToSource(key) && !active[key] {
-			delete(s.reviewed, key)
-		}
-	}
-	// Hunk marks must not revive if changed code later returns to an old patch.
+	// Marks are shared with every Stvena in the project, and another session
+	// may diff the same file against a different baseline. So a mark is only
+	// dropped once this session has seen it apply and then seen its change go:
+	// a mark that never matched here belongs to another session's view.
+	current := map[string][32]byte{}
 	activeHunks := map[string]bool{}
 	for _, f := range snapshot.Files {
+		current[f.Key()] = fingerprint(f)
 		for h := range HunkRanges(f.Lines) {
 			activeHunks[HunkID(f, h)] = true
 		}
 	}
+	if s.seenFiles == nil {
+		s.seenFiles, s.seenHunks = map[string][32]byte{}, map[string]bool{}
+	}
+	// Once a reviewed file changes, it needs review even if later reverted.
+	for key, mark := range s.reviewed {
+		if !s.keyBelongsToSource(key) {
+			continue
+		}
+		if now, ok := current[key]; ok && now == mark {
+			s.seenFiles[key] = mark
+			continue
+		}
+		if seen, ok := s.seenFiles[key]; ok && seen == mark {
+			delete(s.reviewed, key)
+			delete(s.seenFiles, key)
+		}
+	}
+	// Hunk marks must not revive if changed code later returns to an old patch.
 	for id := range s.Hunks {
 		key := id
 		if separator := strings.LastIndexByte(id, ':'); separator >= 0 {
 			key = id[:separator]
 		}
-		if s.keyBelongsToSource(key) && !activeHunks[id] {
+		if s.keyBelongsToSource(key) && !activeHunks[id] && s.seenHunks[id] {
 			delete(s.Hunks, id)
 		}
+	}
+	// Remember what is shown now; forget what is neither shown nor marked.
+	for id := range s.seenHunks {
+		if _, marked := s.Hunks[id]; !marked && !activeHunks[id] {
+			delete(s.seenHunks, id)
+		}
+	}
+	for id := range activeHunks {
+		s.seenHunks[id] = true
+	}
+}
+
+// markSeen records that a mark set here applies to this session's view.
+func (s *State) markSeen(f diffview.File) {
+	if s.seenFiles == nil {
+		s.seenFiles, s.seenHunks = map[string][32]byte{}, map[string]bool{}
+	}
+	if mark, ok := s.reviewed[f.Key()]; ok {
+		s.seenFiles[f.Key()] = mark
+	}
+	for h := range HunkRanges(f.Lines) {
+		s.seenHunks[HunkID(f, h)] = true
 	}
 }
 
@@ -396,6 +432,7 @@ func (s *State) SetFileReviewed(f diffview.File, reviewed bool) {
 	for h := range HunkRanges(f.Lines) {
 		s.Hunks[HunkID(f, h)] = true
 	}
+	s.markSeen(f)
 	s.Remember(f)
 }
 
@@ -416,6 +453,7 @@ func (s *State) SetHunkReviewed(f diffview.File, h int, reviewed bool) {
 	}
 	delete(s.reviewed, f.Key())
 	s.Hunks[HunkID(f, h)] = reviewed
+	s.markSeen(f)
 	s.Remember(f)
 }
 

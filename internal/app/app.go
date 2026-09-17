@@ -454,6 +454,13 @@ func Run(args []string) error {
 
 			}
 		case <-renderTicker.C:
+			// Another Stvena in this project may have accepted something.
+			if time.Since(state.marksSyncedAt) >= 500*time.Millisecond {
+				state.marksSyncedAt = time.Now()
+				if state.review.SyncMarks() {
+					dirty = true
+				}
+			}
 			if state.publishEditorReview() {
 				dirty = true
 			}
@@ -544,6 +551,7 @@ type screenState struct {
 	pendingHunk                                     int
 	workers                                         sync.WaitGroup
 	agentName                                       string
+	marksSyncedAt                                   time.Time
 	agentInput                                      io.Writer
 	bracketedPaste, pastePending                    bool
 	pasteInput                                      []byte

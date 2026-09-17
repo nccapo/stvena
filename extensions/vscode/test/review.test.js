@@ -75,16 +75,16 @@ function titles(h) {
   return h.vscode.lenses.provideCodeLenses(h.document).map(lens => lens.command.title);
 }
 
-test('a change block offers accept and reject, and reflects what Stvena published', () => {
+test('a change block offers accept and reject, and leaves once decided', () => {
   const h = harness();
   h.ui.update(repos());
   assert.deepEqual(titles(h), ['✓ Accept', '✗ Reject', 'Reject with reason…']);
 
   h.ui.update(repos({ reviewed: true }));
-  assert.deepEqual(titles(h), ['✓ Accepted', 'Undo']);
+  assert.deepEqual(titles(h), []);
 
   h.ui.update(repos({ rejected: true }));
-  assert.deepEqual(titles(h), ['✗ Rejected', 'Undo']);
+  assert.deepEqual(titles(h), []);
 });
 
 test('a decision shows immediately and is reconciled when Stvena agrees', async () => {
@@ -93,26 +93,26 @@ test('a decision shows immediately and is reconciled when Stvena agrees', async 
   const target = { root: '/repo', path: 'a.go', hunkId: HUNK, start: 4, end: 9 };
 
   await h.ui.decide('reject', target, 'breaks the contract');
-  // The editor must not wait a poll cycle to respond.
-  assert.deepEqual(titles(h), ['✗ Rejected …', 'Undo']);
+  // The editor must not wait a poll cycle to respond: the change is gone.
+  assert.deepEqual(titles(h), []);
   assert.equal(h.sent[0].request.action, 'reject');
   assert.equal(h.sent[0].request.text, 'breaks the contract');
   assert.equal(h.sent[0].request.hunkId, HUNK);
 
-  // Stvena has not caught up yet: the optimistic state must survive.
+  // Stvena has not caught up yet: the change must not come back.
   h.ui.update(repos());
-  assert.deepEqual(titles(h), ['✗ Rejected …', 'Undo']);
+  assert.deepEqual(titles(h), []);
 
-  // Once it agrees, the optimistic entry is dropped and the "…" goes away.
+  // Once it agrees, it stays gone.
   h.ui.update(repos({ rejected: true }));
-  assert.deepEqual(titles(h), ['✗ Rejected', 'Undo']);
+  assert.deepEqual(titles(h), []);
 });
 
 test('a refused decision is rolled back and reported', async () => {
   const h = harness();
   h.ui.update(repos());
   await h.ui.decide('accept', { root: '/repo', path: 'a.go', hunkId: HUNK, start: 4, end: 9 });
-  assert.deepEqual(titles(h), ['✓ Accepted …', 'Undo']);
+  assert.deepEqual(titles(h), []);
 
   h.ui.update(repos({}, { lastRequest: { id: 'req-1', action: 'accept', status: 'refused',
     message: 'that change block has changed since your editor drew it', at: new Date().toISOString() } }));
@@ -124,7 +124,7 @@ test('a decision Stvena never acknowledges expires instead of sticking', () => {
   const h = harness();
   h.ui.update(repos());
   void h.ui.decide('reject', { root: '/repo', path: 'a.go', hunkId: HUNK, start: 4, end: 9 });
-  assert.deepEqual(titles(h), ['✗ Rejected …', 'Undo']);
+  assert.deepEqual(titles(h), []);
 
   const later = Date.now() + optimisticLifetimeMs + 1;
   const original = Date.now;
@@ -145,37 +145,51 @@ test('a send that the running Stvena cannot do is rolled back at once', async ()
   assert.match(h.errors[0], /does not support/);
 });
 
-test('changed lines are painted by state, and never onto an unsaved buffer', () => {
+test('only undecided lines are painted, and never onto an unsaved buffer', () => {
   const h = harness();
   h.ui.update(repos());
   const buckets = () => [...h.painted.values()].map(list => list.length);
-  assert.deepEqual(buckets(), [1, 0, 0]);
+  assert.deepEqual(buckets(), [1]);
 
   h.ui.update(repos({ reviewed: true }));
-  assert.deepEqual(buckets(), [0, 1, 0]);
+  assert.deepEqual(buckets(), [0]);
 
   h.ui.update(repos({ rejected: true }));
-  assert.deepEqual(buckets(), [0, 0, 1]);
+  assert.deepEqual(buckets(), [0]);
+
+  // Decided in this editor and not yet confirmed: already unpainted.
+  h.ui.update(repos());
+  void h.ui.decide('accept', { root: '/repo', path: 'a.go', hunkId: HUNK, start: 4, end: 9 });
+  assert.deepEqual(buckets(), [0]);
+  h.ui.clear();
 
   // An edited buffer no longer matches the captured lines. The edit itself
   // repaints; nothing waits for the next poll.
+  h.ui.update(repos());
+  assert.deepEqual(buckets(), [1]);
   h.document.isDirty = true;
   h.edit();
-  assert.deepEqual(buckets(), [0, 0, 0]);
+  assert.deepEqual(buckets(), [0]);
   assert.deepEqual(h.vscode.lenses.provideCodeLenses(h.document), []);
 });
 
-test('Explorer badges count unreviewed blocks and mark rejections', () => {
+test('Explorer badges count undecided blocks only', () => {
   const h = harness();
   const uri = { scheme: 'file', fsPath: path.join('/repo', 'a.go') };
   h.ui.update(repos());
   assert.equal(h.vscode.badges.provideFileDecoration(uri).badge, '1');
 
   h.ui.update(repos({ reviewed: true }));
-  assert.equal(h.vscode.badges.provideFileDecoration(uri).badge, '✓');
+  assert.equal(h.vscode.badges.provideFileDecoration(uri), undefined);
 
   h.ui.update(repos({ rejected: true }));
-  assert.equal(h.vscode.badges.provideFileDecoration(uri).badge, '✗');
+  assert.equal(h.vscode.badges.provideFileDecoration(uri), undefined);
+
+  const mixed = repos();
+  mixed[0].review.files[0].hunks.push({ id: OTHER, start: 20, end: 21, rejected: true },
+    { id: 'c'.repeat(64), start: 30, end: 31 });
+  h.ui.update(mixed);
+  assert.equal(h.vscode.badges.provideFileDecoration(uri).badge, '2');
 
   // Files Stvena has not published are not Stvena's to decorate.
   assert.equal(h.vscode.badges.provideFileDecoration({ scheme: 'file', fsPath: '/repo/other.go' }), undefined);
@@ -194,7 +208,7 @@ test('the lens can be turned off without affecting decorations', () => {
   const h = harness({ codeLens: false });
   h.ui.update(repos());
   assert.deepEqual(h.vscode.lenses.provideCodeLenses(h.document), []);
-  assert.deepEqual([...h.painted.values()].map(list => list.length), [1, 0, 0]);
+  assert.deepEqual([...h.painted.values()].map(list => list.length), [1]);
 });
 
 test('decisions on other hunks do not leak into this one', async () => {
@@ -206,14 +220,17 @@ test('decisions on other hunks do not leak into this one', async () => {
 });
 
 
-test('whole-file rejection lenses identify what Undo cancels and retain stale-click tokens', () => {
+test('a whole-file rejection clears every block of the file', () => {
   const h = harness();
-  const state = repos({ rejected: true });
+  const state = repos();
   state[0].review.files[0].rejected = true;
+  state[0].review.files[0].hunks.push({ id: OTHER, start: 20, end: 21 });
   h.ui.update(state);
-  assert.deepEqual(titles(h), ['✗ Rejected', 'Undo file rejection']);
-  const undo = h.vscode.lenses.provideCodeLenses(h.document)[1];
-  assert.equal(undo.command.arguments[0].hunkId, HUNK);
+  // Stvena marks each block rejected too, but the file mark alone is enough.
+  state[0].review.files[0].hunks.forEach(hunk => { hunk.rejected = false; });
+  h.ui.update(state);
+  assert.deepEqual(titles(h), []);
+  assert.equal(h.vscode.badges.provideFileDecoration({ scheme: 'file', fsPath: path.join('/repo', 'a.go') }), undefined);
 });
 
 test('new-file lenses describe whole-file rejection and retain the captured hunk token', () => {
