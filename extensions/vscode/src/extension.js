@@ -10,6 +10,12 @@ function activate(context) {
   if (!vscode.workspace.isTrusted) return;
   let repos = [], rows = [], latest, following = true, disposed = false, busy = false;
   let discoveryAt = 0, generation = 0, displayed;
+  // Folders the last full discovery could not resolve, and the registry state
+  // they were last checked against. A project without Git only becomes
+  // findable once Stvena has started and written its registry entry, which is
+  // usually a moment after the editor last looked; waiting for the next full
+  // discovery would miss everything the agent does in the meantime.
+  let unresolved = [], unresolvedStamp;
   const seen = new Map();
   const errors = new Map();
   const markers = activity.createMarkers(vscode, context);
@@ -147,6 +153,8 @@ function activate(context) {
       if (Date.now() >= discoveryAt) {
         discoveryAt = Date.now() + 5000;
         const found = new Map();
+        const missing = [];
+        unresolvedStamp = await bridge.registryStamp();
         for (const folder of vscode.workspace.workspaceFolders || []) {
           if (folder.uri.scheme !== 'file') continue;
           try {
@@ -156,12 +164,33 @@ function activate(context) {
             // while it still points at the same descriptors: a project that has
             // since gained Git writes them somewhere else.
             if (repo) found.set(repo.root, repos.find(old => old.root === repo.root && old.dir === repo.dir) || repo);
+            else missing.push(folder);
             errors.delete(folder.name);
           } catch (error) {
             report(folder.name, error);
           }
         }
         repos = [...found.values()];
+        unresolved = missing;
+      } else if (unresolved.length) {
+        // Between full discoveries, look again only when the registry changed,
+        // and only through the registry: no git process runs on this path.
+        const stamp = await bridge.registryStamp();
+        if (stamp !== unresolvedStamp) {
+          unresolvedStamp = stamp;
+          const still = [];
+          for (const folder of unresolved) {
+            try {
+              const repo = await bridge.lookup(folder.uri.fsPath);
+              if (repo && !repos.some(old => old.root === repo.root && old.dir === repo.dir)) repos = [...repos, repo];
+              else if (!repo) still.push(folder);
+            } catch (error) {
+              report(folder.name, error);
+              still.push(folder);
+            }
+          }
+          unresolved = still;
+        }
       }
       let follow;
       for (const repo of repos) {

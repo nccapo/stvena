@@ -23,6 +23,7 @@ import (
 	"github.com/charmbracelet/x/vt"
 	"github.com/nccapo/stvena/internal/diffview"
 	"github.com/nccapo/stvena/internal/editor"
+	"github.com/nccapo/stvena/internal/editorlsp"
 	"github.com/nccapo/stvena/internal/repo"
 	"github.com/nccapo/stvena/internal/review"
 	"github.com/nccapo/stvena/internal/ui"
@@ -74,6 +75,11 @@ type editorRequestEvent struct{ request editor.Request }
 
 // Run starts the requested agent command. With no arguments it runs Codex.
 func Run(args []string) error {
+	if len(args) > 0 && args[0] == "editor-lsp" {
+		// Stdout is the LSP channel from here on; the server writes nothing
+		// else to it and logs to stderr.
+		return editorlsp.Run(args[1:], os.Stdin, os.Stdout, os.Stderr, Version)
+	}
 	if len(args) == 1 && args[0] == "editor-hook" {
 		// Observers must never block an agent operation on a display failure.
 		data, _ := io.ReadAll(io.LimitReader(os.Stdin, 1024*1024))
@@ -86,7 +92,7 @@ func Run(args []string) error {
 		return nil
 	}
 	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
-		fmt.Fprintln(os.Stdout, "Usage: stvena [--] [command [args...]]\n       stvena review [--session ID]\n       stvena sessions\n\nDefault command: codex. The bottom panel starts focused on Configuration.\nArrows select, Enter activates, Esc returns to the agent or review. F6 can refocus the panel.\nSelect Configuration to change global or review shortcuts for all projects.\nCtrl-G switches panes (agent/workspace), preserving the open file; a opens Actions.\nCtrl-] chooses Codex, Claude Code, or the launch command for a new terminal. Ctrl-N / Ctrl-P switch agent terminals.\nCtrl-Y selects the next agent needing attention.\nCtrl-W closes the current agent terminal and stops its command.\nCtrl-Q closes stvena and stops all running commands. Ctrl-C interrupts the command.\nReview stays open after commands exit. q closes review once all agents finish.\nRun inside the repository you want to review.")
+		fmt.Fprintln(os.Stdout, "Usage: stvena [--] [command [args...]]\n       stvena review [--session ID]\n       stvena sessions\n       stvena editor-lsp [--ide NAME]   language server for editors without a Stvena extension\n\nDefault command: codex. The bottom panel starts focused on Configuration.\nArrows select, Enter activates, Esc returns to the agent or review. F6 can refocus the panel.\nSelect Configuration to change global or review shortcuts for all projects.\nCtrl-G switches panes (agent/workspace), preserving the open file; a opens Actions.\nCtrl-] chooses Codex, Claude Code, or the launch command for a new terminal. Ctrl-N / Ctrl-P switch agent terminals.\nCtrl-Y selects the next agent needing attention.\nCtrl-W closes the current agent terminal and stops its command.\nCtrl-Q closes stvena and stops all running commands. Ctrl-C interrupts the command.\nReview stays open after commands exit. q closes review once all agents finish.\nRun inside the repository you want to review.")
 		return nil
 	}
 	if len(args) == 1 && args[0] == "sessions" {

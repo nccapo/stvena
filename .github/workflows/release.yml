@@ -66,3 +66,19 @@ jobs:
           fi
           printf '{"event_type":"stvena-release","client_payload":{"version":"%s"}}' "$TAG" |
             gh api repos/nccapo/homebrew-stvena/dispatches --input -
+
+      # Stable releases only; pre-release builds stay on the GitHub release.
+      # Runs last so a Marketplace failure cannot hold back the binaries or the
+      # tap. It publishes the exact VSIX tested and attached above.
+      - name: Publish the extension to the VS Code Marketplace
+        if: ${{ !contains(github.ref_name, '-') }}
+        working-directory: extensions/vscode
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if [ -z "${VSCE_PAT:-}" ]; then
+            echo "VSCE_PAT is unset; publish stvena-live-$version.vsix from the release by hand."
+            exit 0
+          fi
+          npx vsce publish --packagePath "stvena-live-$version.vsix"

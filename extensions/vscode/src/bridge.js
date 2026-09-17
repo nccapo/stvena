@@ -48,6 +48,26 @@ async function discover(folder) {
   return entry && describe(entry);
 }
 
+// lookup resolves a folder through the registry alone. It answers the case Git
+// cannot — a project Stvena is reviewing without a repository — without
+// starting a git process, so it is cheap enough to ask on every poll while a
+// folder is still unresolved.
+async function lookup(folder) {
+  const entry = await fromRegistry(folder);
+  return entry && describe(entry);
+}
+
+// registryStamp changes whenever an entry is added, replaced or removed, because
+// Stvena writes entries by atomic rename into the directory. Undefined means
+// there is no registry yet.
+async function registryStamp() {
+  try {
+    return (await fs.stat(path.join(stvenaHome(), 'bridges'))).mtimeMs;
+  } catch {
+    return undefined;
+  }
+}
+
 function describe(entry) {
   return { root: entry.root, realRoot: entry.realRoot, mode: entry.mode, dir: entry.dir, gitDir: entry.gitDir,
     statePath: path.join(entry.dir, 'stvena-live.json'), reviewPath: path.join(entry.dir, 'stvena-review.json'),
@@ -301,4 +321,4 @@ async function readBlob(repo, oid) {
   return data.toString('utf8');
 }
 
-module.exports = { discover, readState, parseState, readReviewState, parseReviewState, isLive, supports, writeRequest, announce, readBlob };
+module.exports = { discover, lookup, registryStamp, readState, parseState, readReviewState, parseReviewState, isLive, supports, writeRequest, announce, readBlob };

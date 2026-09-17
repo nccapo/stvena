@@ -202,6 +202,52 @@ The differences a consumer can see are these:
 
 Stvena writes nothing into the reviewed folder in either mode.
 
+## Language server consumer
+
+`stvena editor-lsp [--ide NAME]`, added in 0.4.0-preview.2, is a second consumer
+of everything above, speaking standard LSP on stdin/stdout (`internal/editorlsp`). It exists because
+Zed's extension API cannot draw markers, register commands, or open files, and
+because any LSP-capable editor can then launch one binary instead of needing its
+own extension. The Zed wrapper that launches it lives in
+[nccapo/zed-stvena](https://github.com/nccapo/zed-stvena); `--ide` only sets the
+name written to `stvena-ide.json`.
+
+It resolves a folder the same way every consumer must: Git first, then
+Stvena's bridge registry, so a folder reviewed without being a repository is
+found too. It applies the same validation, the same 30-second heartbeat, the same
+15-second activity expiry, the same `features` gating, and the same
+last-request-wins request channel as the VS Code extension, and it writes only
+`stvena-request.json` and `stvena-ide.json`. The two consumers are cross-checked
+by their own protocol tests against the same descriptor shapes.
+
+| Surface | LSP mechanism |
+| --- | --- |
+| Follow navigation | `window/showDocument` with `takeFocus: false` and a selection, sent only to an editor that advertises `window.showDocument.support` |
+| Accept / reject a block | `textDocument/codeLens` plus `workspace/executeCommand` |
+| Selection actions | `textDocument/codeAction`, kind `source.stvena` |
+| Read / edit / review markers | `textDocument/inlayHint` |
+| Review queue | `textDocument/publishDiagnostics`, Information per unreviewed hunk |
+| Status | one long-lived `$/progress` token |
+
+Two deliberate differences from the VS Code extension, both forced by LSP:
+
+- **Whole-document text sync.** The server declares sync kind 1 rather than
+  incremental, because it decides whether a buffer is unsaved by comparing it
+  against the file on disk. That comparison is what keeps a file the agent wrote
+  — which the editor reloads and reports as a change with no save — followable
+  instead of permanently unsaved. An incremental change the editor sends anyway
+  is treated as unsaved until the next save.
+- **Follow navigation is optional.** Opening a file is a request the editor has
+  to advertise, and Zed 1.19 does not implement `window/showDocument`. The
+  server checks the client capability, explains once through `window/logMessage`
+  that locations will be marked rather than opened, and keeps every other
+  surface accurate. Editors that support it navigate as the VS Code extension
+  does.
+- **No reject-with-reason.** LSP has no text prompt, so the editor sends the
+  rejection and the reason is added in the TUI. `prompt` likewise sends the
+  range with empty text and tells the user to finish the question in the agent's
+  input.
+
 ## Editor presence
 
 An extension announces itself by atomically replacing `stvena-ide.json` in the
@@ -238,8 +284,14 @@ acknowledged can replace it.
 ## Verification
 
 Run `go test -race ./...`, `go vet ./...`, `go build ./...`, and `npm test` from
-`extensions/vscode`. To exercise an actual editor host, use a disposable project
-and an isolated editor user-data/extensions directory, then launch:
+`extensions/vscode`. The language server's own suite is
+`go test ./internal/editorlsp/`: it drives a real `Run` over pipes with a
+scripted LSP client — initialize, didOpen, fixture descriptors, lens contents,
+diagnostics, executeCommand, request-file assertions, refusal rollback — and
+prints `STVENA_LSP_TESTS_PASSED` when it passes. Check that stdout carries
+nothing but frames with `stvena editor-lsp < /dev/null | xxd | head`. To
+exercise an actual editor host, use a disposable project and an isolated editor
+user-data/extensions directory, then launch:
 
 ```sh
 STVENA_HOME=/tmp/stvena-editor-home code /tmp/stvena-editor-project \

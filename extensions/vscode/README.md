@@ -23,29 +23,32 @@ compatible Stvena terminal application:
    code --install-extension nccapo.stvena-live
    ```
 
-2. Install the compatible Stvena binary:
+2. Install the Stvena binary, 0.4.0 or later, with Homebrew or the install
+   script:
 
    ```sh
-   curl -fsSL https://raw.githubusercontent.com/nccapo/stvena/v0.4.0-preview.1/install.sh | \
-     STVENA_VERSION=v0.4.0-preview.1 sh
+   brew install nccapo/stvena/stvena
+   ```
+
+   ```sh
+   curl -fsSL https://raw.githubusercontent.com/nccapo/stvena/main/install.sh | sh
    ```
 
 3. Open a trusted local project, with or without Git. In the integrated terminal, check
-   `stvena --version` reports `0.4.0-preview.1`, then run `stvena` for Codex or
+   `stvena --version` reports `0.4.0` or later, then run `stvena` for Codex or
    `stvena claude` for Claude Code.
 4. Ask your agent to edit and save a file. Its change blocks are tinted in the
    working file with **✓ Accept** and **✗ Reject** above them, and **Stvena
    Live** in Explorer lists the captured edit while focus stays in the terminal.
 
-No Go or Node.js installation is needed. Use the version above explicitly:
-the default installer selects the stable release, which predates this bridge.
-Marketplace installations receive extension updates through VS Code according
-to your update settings. Update the Stvena binary separately when upgrading it.
+No Go or Node.js installation is needed. Marketplace installations receive
+extension updates through VS Code according to your update settings. Update the
+Stvena binary separately (`brew upgrade stvena`, or rerun the install script).
 
 ### Manual installation and Antigravity
 
-Download `stvena-live-0.4.0.vsix` from the
-[v0.4.0-preview.1 release](https://github.com/nccapo/stvena/releases/tag/v0.4.0-preview.1),
+Download `stvena-live-0.4.1.vsix` from the
+[v0.4.0 release](https://github.com/nccapo/stvena/releases/tag/v0.4.0),
 or [build the current extension from source](#build-from-source). In VS Code or
 Antigravity IDE's Command Palette, run **Extensions: Install from VSIX…** and
 select the package, then follow the binary installation and startup steps above.
@@ -66,8 +69,7 @@ The rejection is queued, shown immediately as rejected, and applied when the
 agent finishes its turn. The status bar says how many are waiting and why, and
 clicking it applies them now.
 
-Requires Stvena **0.3.0-preview.1** or newer; reviewing a project that is not a
-Git repository requires **0.4.0-preview.1**. Against an older binary the
+Requires Stvena **0.4.0** or newer. Against an older binary the
 extension keeps its 0.2.x read and edit following and hides what that binary
 cannot do. See the [changelog](CHANGELOG.md).
 
@@ -146,7 +148,7 @@ file. From an editor context menu or the Command Palette:
 ## Following reads
 
 Stvena adds a `PostToolUse` observer to standard `stvena codex` and `stvena claude`
-launches, including new agent terminals. Use the compatible preview binary above
+launches, including new agent terminals. Use the compatible binary above
 or, when building from source, rebuild Stvena as well as the extension.
 For Codex versions with hooks, open `/hooks` and review/trust the Stvena observer
 when prompted. Stvena does not bypass hook trust or tool permissions. Hooks must

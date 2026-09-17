@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.1
+
+- Stop the editor tab, Explorer badge and ✓ Accept / ✗ Reject buttons from
+  blinking about once a second. Every poll told VS Code that all of Stvena's
+  decorations had changed, so it dropped and redrew them even when nothing
+  had; the window title bar showed it as a file switching between changed and
+  unchanged. They are now redrawn only when the review state behind them
+  changes, and only for the files involved.
+- Find a project without Git as soon as Stvena starts in it, instead of up to
+  five seconds later. Until then the extension could not see the project, so
+  the agent's first reads and edits were not followed. A folder that is not yet
+  resolved is looked up again whenever Stvena's bridge registry changes, which
+  needs no git process.
+
 ## 0.4.0
 
 - Follow agent edits and reviews in projects that are not Git repositories.

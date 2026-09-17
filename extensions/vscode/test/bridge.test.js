@@ -6,7 +6,7 @@ const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const { discover, parseState, readState, parseReviewState, readReviewState, isLive, writeRequest, readBlob } = require('../src/bridge');
+const { discover, lookup, registryStamp, parseState, readState, parseReviewState, readReviewState, isLive, writeRequest, readBlob } = require('../src/bridge');
 
 const state = () => ({ version: 1, session: 'test-session', sequence: 1, active: true,
   updatedAt: new Date().toISOString(), files: [{ path: 'nested/file.txt', status: 'M',
@@ -244,4 +244,37 @@ test('reads captured blobs from a private snapshot store', async t => {
   await registry(t, { 'a.json': entry(root, dir) });
   const repo = await discover(root);
   assert.equal(await readBlob(repo, oid), 'captured\n');
+});
+
+test('lookup finds a project through the registry without asking Git', async t => {
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'stvena-lookup-')));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  // A git that would fail loudly proves lookup never runs one.
+  const bin = await fs.mkdtemp(path.join(os.tmpdir(), 'stvena-nogit-bin-'));
+  t.after(() => fs.rm(bin, { recursive: true, force: true }));
+  await fs.writeFile(path.join(bin, 'git'), '#!/bin/sh\necho "git must not run" >&2\nexit 99\n', { mode: 0o755 });
+  const previous = process.env.PATH;
+  process.env.PATH = `${bin}${path.delimiter}${previous}`;
+  t.after(() => { process.env.PATH = previous; });
+  await registry(t, {});
+  assert.equal(await lookup(root), undefined);
+  const home = process.env.STVENA_HOME;
+  await fs.writeFile(path.join(home, 'bridges', 'a.json'), JSON.stringify(entry(root, '/tmp/lookup-cache')));
+  const repo = await lookup(path.join(root));
+  assert.equal(repo.mode, 'shadow');
+  assert.equal(repo.statePath, path.join('/tmp/lookup-cache', 'stvena-live.json'));
+});
+
+test('the registry stamp changes when Stvena writes an entry', async t => {
+  const home = await registry(t, {});
+  const before = await registryStamp();
+  assert.notEqual(before, undefined);
+  await new Promise(resolve => setTimeout(resolve, 20));
+  // Stvena writes entries by atomic rename into the directory.
+  const temporary = path.join(home, 'bridges', '.save-1');
+  await fs.writeFile(temporary, '{}');
+  await fs.rename(temporary, path.join(home, 'bridges', 'b.json'));
+  assert.notEqual(await registryStamp(), before);
+  await fs.rm(path.join(home, 'bridges'), { recursive: true });
+  assert.equal(await registryStamp(), undefined);
 });
