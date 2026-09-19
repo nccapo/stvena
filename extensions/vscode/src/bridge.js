@@ -219,7 +219,8 @@ function parseReviewState(data) {
     if (!Array.isArray(state.files)) throw new Error('Invalid Stvena review files.');
     for (const file of state.files) {
       if (!file || !validPath(file.path) || (file.oldPath !== undefined && !validPath(file.oldPath)) ||
-          typeof file.status !== 'string' || !/^[AMDRCTU?]$/.test(file.status)) {
+          typeof file.status !== 'string' || !/^[AMDRCTU?]$/.test(file.status) ||
+          (file.before !== undefined && (typeof file.before !== 'string' || !oidPattern.test(file.before)))) {
         throw new Error('Invalid Stvena review file.');
       }
       if (file.hunks !== undefined) {
@@ -227,7 +228,11 @@ function parseReviewState(data) {
         for (const hunk of file.hunks) {
           if (!hunk || typeof hunk.id !== 'string' || !/^[0-9a-f]{64}$/.test(hunk.id) ||
               !Number.isSafeInteger(hunk.start) || hunk.start < 1 ||
-              !Number.isSafeInteger(hunk.end) || hunk.end < hunk.start) {
+              !Number.isSafeInteger(hunk.end) || hunk.end < hunk.start ||
+              (hunk.added !== undefined && (!Number.isSafeInteger(hunk.added) || hunk.added < 0)) ||
+              (hunk.removed !== undefined && (!Array.isArray(hunk.removed) || hunk.removed.some(run =>
+                !Array.isArray(run) || run.length !== 2 || !Number.isSafeInteger(run[0]) || run[0] < 1 ||
+                !Number.isSafeInteger(run[1]) || run[1] < 1)))) {
             throw new Error('Invalid Stvena review hunk.');
           }
         }
@@ -257,7 +262,7 @@ function supports(review, action) {
 }
 
 // Actions that operate on the whole queue rather than one located change.
-const pathlessActions = new Set(['apply-rejections', 'next-unreviewed']);
+const pathlessActions = new Set(['apply-rejections', 'next-unreviewed', 'accept-all']);
 
 async function readMetadata(filePath, limit, parse) {
   try {
@@ -276,7 +281,9 @@ async function readMetadata(filePath, limit, parse) {
 }
 
 async function readReviewState(repo) {
-  return readMetadata(repo.reviewPath, 64 * 1024, parseReviewState);
+  // Stvena publishes up to 5000 hunks at roughly 150 bytes each; source text
+  // never enters this descriptor, so the bound only has to cover that.
+  return readMetadata(repo.reviewPath, 1024 * 1024, parseReviewState);
 }
 
 function isLive(state, now = Date.now()) {
@@ -298,6 +305,9 @@ async function writeRequest(repo, request) {
   if (request.hunkId !== undefined && !/^[0-9a-f]{64}$/.test(request.hunkId)) {
     throw new Error('Invalid Stvena hunk reference.');
   }
+  if (request.tree !== undefined && (typeof request.tree !== 'string' || !oidPattern.test(request.tree))) {
+    throw new Error('Invalid Stvena review tree.');
+  }
   if (request.text !== undefined && (typeof request.text !== 'string' ||
       Buffer.byteLength(request.text, 'utf8') > 4096)) {
     throw new Error('Rejection reason is too long.');
@@ -307,6 +317,7 @@ async function writeRequest(repo, request) {
     endLine: located ? request.endLine : 0, updatedAt: new Date().toISOString() };
   if (request.hunkId !== undefined) value.hunkId = request.hunkId;
   if (request.text) value.text = request.text;
+  if (request.tree !== undefined) value.tree = request.tree;
   await writeAtomically(repo.requestPath, value);
   return value;
 }

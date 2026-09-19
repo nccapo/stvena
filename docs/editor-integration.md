@@ -151,7 +151,7 @@ authoritative diff surface. The version 1 fields are:
 | `newerBatches` | Observed timeline batches newer than the currently pinned batch |
 | `features` | Request actions this Stvena accepts; absent means only `review` and `context` |
 | `tree` | Captured tree the `files` below describe |
-| `files` | Per-file review state, each with `path`, optional `oldPath`, `status`, `reviewed`, `rejected`, `binary`, and `hunks` |
+| `files` | Per-file review state, each with `path`, optional `oldPath`, `status`, `reviewed`, `rejected`, `binary`, optional `before` blob, and `hunks` |
 | `truncated` | Set when the change set exceeded 500 files or 5000 hunks |
 | `pendingRejections` | Optional `count`, `appliesAt` (`now`, `turn-end` or `manual`) and `reason` |
 | `lastRequest` | Optional acknowledgement: `id`, `action`, `status` (`applied`, `queued`, `refused`), `message`, `at` |
@@ -162,6 +162,14 @@ deletion-only hunk points at the surviving neighbour. The id is derived from the
 hunk's content, so a hunk the agent edited after the editor drew it produces a
 different id and any request naming the old one is refused. Consumers must treat
 the id as opaque and echo it back unchanged.
+
+An undecided hunk can also say what it replaced. `removed` lists the lines it
+took out as `[start, count]` runs, numbered in the file's `before` blob, and
+`added` counts the lines it put in. A hunk with `removed` and no `added` only
+deleted lines. No source text enters the descriptor: a consumer that wants to
+show the removed lines reads `before` from the object store, exactly like the
+blobs in live edit state. Decided hunks, and files with no before version (new
+files), carry none of these fields.
 
 **Every field from `features` onward is optional.** An older Stvena omits them
 and a consumer must treat absence as "this build cannot do that", never as a
@@ -178,8 +186,16 @@ owner-only permissions. A version 1 request contains `version`, matching
 validated repository `path`, inclusive one-based `line` / `endLine`, and
 `updatedAt`. It may also carry `hunkId` (a hunk id from the descriptor; absent
 means the whole file) and `text` (at most 4096 bytes, used as a rejection
-reason). `apply-rejections` and `next-unreviewed` act on the whole queue and
-carry no location.
+reason). `apply-rejections`, `next-unreviewed` and `accept-all` act on the
+whole queue and carry no location. `accept-all` also carries `tree`: the
+descriptor's `tree` the editor counted from. Stvena refuses it if its session
+tree has moved on since, so it never accepts a change the editor did not show.
+
+Stvena reads the request file once per capture refresh, roughly every 700 ms,
+and each request replaces the last. **Write one request at a time**: wait until
+`lastRequest.id` names the one you wrote before writing the next, with a
+timeout, since not every action is acknowledged. Two requests written between
+two reads lose the first without any error.
 
 | Action | Effect |
 | --- | --- |
@@ -190,6 +206,7 @@ carry no location.
 | `undo-reject` | Removes a queued rejection |
 | `apply-rejections` | Applies the queue now, overriding the turn-boundary wait |
 | `next-unreviewed` | Moves the TUI to the next unreviewed file |
+| `accept-all` | Marks every undecided file and hunk reviewed, leaving queued rejections alone |
 | `prompt` | Places `text` and the captured range in the agent's input, unsubmitted |
 
 `prompt` reads the range from Stvena's immutable capture, never from editor

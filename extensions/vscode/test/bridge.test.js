@@ -121,6 +121,28 @@ test('per-hunk review state parses, and older descriptors without it still work'
   }
 });
 
+test('hunks may name the before-version lines they replaced', () => {
+  const now = new Date().toISOString();
+  const hunk = { id: 'a'.repeat(64), start: 4, end: 9, added: 2, removed: [[4, 1], [7, 3]] };
+  const value = { version: 1, session: 'review-session', sequence: 1, active: true, updatedAt: now,
+    unreviewedFiles: 1, unreviewedHunks: 1, newerBatches: 0,
+    files: [{ path: 'a.go', status: 'M', before: 'b'.repeat(40), hunks: [hunk] }] };
+  assert.deepEqual(parseReviewState(JSON.stringify(value)), value);
+
+  const file = value.files[0];
+  for (const change of [
+    { before: 'HEAD' },
+    { before: 42 },
+    { hunks: [{ ...hunk, added: -1 }] },
+    { hunks: [{ ...hunk, removed: [4, 1] }] },
+    { hunks: [{ ...hunk, removed: [[0, 1]] }] },
+    { hunks: [{ ...hunk, removed: [[4, 0]] }] },
+    { hunks: [{ ...hunk, removed: [[4, 1, 2]] }] },
+  ]) {
+    assert.throws(() => parseReviewState(JSON.stringify({ ...value, files: [{ ...file, ...change }] })));
+  }
+});
+
 test('requests are gated on what the running Stvena advertises', async t => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'stvena-features-'));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
@@ -150,6 +172,14 @@ test('requests are gated on what the running Stvena advertises', async t => {
     text: 'x'.repeat(4097) }), /too long/);
   await assert.rejects(() => writeRequest(repo, { action: 'reject', path: '../escape', line: 1, endLine: 1 }),
     /Invalid Stvena editor request/);
+
+  // Accept all names the tree the editor counted from, and nothing else.
+  await assert.rejects(() => writeRequest(repo, { action: 'accept-all', tree: 'c'.repeat(40) }), /does not support/);
+  repo.review.features.push('accept-all');
+  const all = await writeRequest(repo, { action: 'accept-all', tree: 'c'.repeat(40) });
+  assert.deepEqual([all.path, all.line, all.tree], ['', 0, 'c'.repeat(40)]);
+  assert.equal(JSON.parse(await fs.readFile(repo.requestPath, 'utf8')).tree, 'c'.repeat(40));
+  await assert.rejects(() => writeRequest(repo, { action: 'accept-all', tree: 'HEAD' }), /review tree/);
 });
 
 // registry builds an isolated Stvena home with the given bridge entries, so a

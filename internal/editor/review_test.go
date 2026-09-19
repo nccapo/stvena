@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -93,6 +94,22 @@ func TestReviewPublisherAndEditorRequests(t *testing.T) {
 	}
 	if _, err := reader.Poll(); err == nil {
 		t.Fatal("unsafe editor path accepted")
+	}
+	// accept-all names no location, only the tree the editor counted from.
+	all := Request{Version: 1, Session: saved.ID, ID: "request-3", Action: "accept-all",
+		Tree: strings.Repeat("a", 40), UpdatedAt: time.Now().UTC()}
+	if err := session.AtomicJSON(reader.path, all); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := reader.Poll(); err != nil || got == nil || got.Tree != all.Tree {
+		t.Fatalf("accept-all request: %+v %v", got, err)
+	}
+	all.ID, all.Tree = "request-4", "HEAD"
+	if err := session.AtomicJSON(reader.path, all); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reader.Poll(); err == nil {
+		t.Fatal("a tree that is not an object ID was accepted")
 	}
 	publisher.Close()
 	data, err = os.ReadFile(publisher.path)

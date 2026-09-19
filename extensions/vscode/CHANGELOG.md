@@ -2,6 +2,25 @@
 
 ## 0.5.0
 
+- Review with the keyboard. **⌥Y** / **Alt+Y** accepts and **⌥N** / **Alt+N**
+  rejects the change at the cursor, then moves to the next change to review.
+  **⌥]** and **⌥[** go to the next and previous change, across files, wrapping
+  around. The status bar counts what is left (**7 changes in 3 files**); click
+  it to go to the next one. **Stvena: Accept All Remaining Changes…** accepts
+  the rest after a confirmation, and needs a Stvena build that advertises
+  `accept-all`.
+- Stop quick decisions from getting lost. Stvena reads one request at a time,
+  so a second decision made within about a second of the first could replace
+  it before Stvena saw it, and the first block came back ten seconds later.
+  Requests now wait their turn.
+
+- See what a change block replaced before you accept or reject it. Hovering a
+  block shows the lines the agent took out, read from Stvena's capture rather
+  than a diff tab. A block that only deleted lines is no longer tinted onto the
+  unchanged line after it: a dashed rule marks where the lines were, labelled
+  **− 6 lines removed above**. Needs a Stvena build that publishes `before`;
+  against an older one the hover says what it always did.
+
 - Accepting or rejecting a change block removes it from the editor at once:
   no more **✓ Accepted** / **✗ Rejected** lines, highlights or Explorer badges
   for decided blocks. Undo is in Stvena. The accepted and rejected background

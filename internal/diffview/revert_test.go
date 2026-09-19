@@ -3,6 +3,7 @@ package diffview
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -249,6 +250,28 @@ func TestHunkSpansMapPatchHunksToWorkingLines(t *testing.T) {
 	// A deletion-only hunk points at the surviving neighbour line.
 	if spans[1] != (LineSpan{11, 11}) {
 		t.Fatalf("deletion hunk span %+v", spans[1])
+	}
+}
+
+func TestHunkChangesNumberRemovedLinesInTheBeforeVersion(t *testing.T) {
+	f := File{Lines: []string{
+		"diff --git a/f b/f", "--- a/f", "+++ b/f",
+		"@@ -1,3 +1,3 @@", " one", "-two", "+TWO", " three",
+		"@@ -10,6 +10,3 @@", " ten", "-eleven", "-twelve", " thirteen", "-fourteen", " fifteen",
+		"@@ -20,2 +17,3 @@", " twenty", "+new", " twenty-one",
+	}}
+	changes := HunkChanges(f)
+	if len(changes) != len(HunkSpans(f)) {
+		t.Fatalf("changes and spans disagree on hunk count: %+v", changes)
+	}
+	want := []HunkChange{
+		{Added: 1, Removed: []LineRun{{2, 1}}},
+		// Removals split by an unchanged line stay separate runs.
+		{Removed: []LineRun{{11, 2}, {14, 1}}},
+		{Added: 1},
+	}
+	if !reflect.DeepEqual(changes, want) {
+		t.Fatalf("got %+v, want %+v", changes, want)
 	}
 }
 

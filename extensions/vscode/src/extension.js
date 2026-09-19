@@ -6,6 +6,10 @@ const bridge = require('./bridge');
 const activity = require('./activity');
 const reviewUI = require('./review');
 const selectionUI = require('./selection');
+const { createRequestQueue } = require('./queue');
+
+// alt shows the Alt key the way the platform labels it, for hints that name a shortcut.
+const alt = process.platform === 'darwin' ? '⌥' : 'Alt+';
 
 function activate(context) {
   if (!vscode.workspace.isTrusted) return;
@@ -34,11 +38,18 @@ function activate(context) {
       return item;
     },
   } });
-  const decisions = reviewUI.createReviewUI(vscode, context, (target, request) => {
-    const repo = repos.find(candidate => candidate.root === target.root);
-    if (!repo) throw new Error('No active Stvena review owns this file.');
-    return bridge.writeRequest(repo, request);
+  // Every request goes through one queue per project, so a decision made while
+  // Stvena has not yet read the previous one cannot overwrite it.
+  const sendRequest = createRequestQueue({
+    write: (root, request) => {
+      const repo = repos.find(candidate => candidate.root === root);
+      if (!repo) throw new Error('No active Stvena review owns this file.');
+      return bridge.writeRequest(repo, request);
+    },
+    acknowledged: (root, id) => repos.find(candidate => candidate.root === root)?.review?.lastRequest?.id === id,
   });
+  const decisions = reviewUI.createReviewUI(vscode, context, (target, request) => sendRequest(target.root, request),
+    (repo, oid) => bridge.readBlob(repo, oid));
   // Handoffs to the agent are pasted by Stvena after it reads the request, so
   // whether one arrived is only known from its acknowledgement.
   const handoffs = new Map(); // request id -> sent at
@@ -53,6 +64,144 @@ function activate(context) {
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 10);
   status.command = 'stvena.toggleFollow';
   status.show();
+  // What is left to review, beside the connection status. Clicking it goes to
+  // the next change, the same as the keyboard shortcut.
+  const remainingStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 9);
+  remainingStatus.command = 'stvena.nextChange';
+  const contextKeys = new Map();
+
+  function setContext(name, value) {
+    if (contextKeys.get(name) === value) return;
+    contextKeys.set(name, value);
+    void vscode.commands.executeCommand('setContext', name, value);
+  }
+
+  // syncCursor tells keybindings whether the cursor sits on a change to review.
+  function syncCursor() {
+    const editor = vscode.window.activeTextEditor;
+    setContext('stvena.changeAtCursor', !!(editor && decisions.at(editor.document, editor.selection.active.line)));
+  }
+
+  // syncReview redraws the remaining count and the keybinding context. It runs
+  // after every poll and every local decision, which changes the count at once.
+  function syncReview() {
+    const live = repos.filter(repo => bridge.isLive(repo.review));
+    let changes = 0, files = 0;
+    for (const repo of live) {
+      const left = decisions.remaining(repo.root);
+      changes += left.changes;
+      files += left.files;
+    }
+    const more = live.some(repo => repo.review.truncated) ? '+' : '';
+    if (changes) {
+      remainingStatus.text = `$(checklist) ${changes}${more} change${changes === 1 ? '' : 's'} in ${files} file${files === 1 ? '' : 's'}`;
+      remainingStatus.tooltip = `Stvena: go to the next change to review (${alt}])\n` +
+        `${alt}Y accepts and ${alt}N rejects the change at the cursor.`;
+      remainingStatus.show();
+    } else {
+      remainingStatus.hide();
+    }
+    setContext('stvena.hasChanges', !!decisions.step(undefined, 0, 1));
+    syncCursor();
+  }
+
+  // hint reports a keyboard action that did nothing, without a notification
+  // that would take the keyboard away from the editor.
+  function hint(message) {
+    vscode.window.setStatusBarMessage(`$(info) Stvena: ${message}`, 3000);
+  }
+
+  async function goTo(target) {
+    if (!target) return false;
+    const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(target.fsPath));
+    const line = Math.max(0, Math.min(target.line - 1, doc.lineCount - 1));
+    const selection = new vscode.Range(line, 0, line, 0);
+    const editor = await vscode.window.showTextDocument(doc, { preview: true, selection });
+    editor.revealRange(selection, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+    return true;
+  }
+
+  // step moves from the cursor to the next or previous change to review,
+  // crossing into other files and wrapping around.
+  async function step(direction) {
+    const editor = vscode.window.activeTextEditor;
+    const target = decisions.step(editor?.document.uri, editor ? editor.selection.active.line : 0, direction);
+    if (!target) {
+      hint('nothing left to review');
+      return;
+    }
+    try {
+      await goTo(target);
+    } catch (error) {
+      void vscode.window.showErrorMessage(`Stvena: ${error.message}`);
+    }
+  }
+
+  // decide applies a decision and redraws the count now rather than on the
+  // next poll; Stvena confirms it a moment later.
+  function decide(kind, target, text) {
+    const done = decisions.decide(kind, target, text);
+    syncReview();
+    return done.finally(syncReview);
+  }
+
+  // decideAtCursor accepts or rejects the change under the cursor, then moves
+  // on to the next one so a review can be done without the mouse.
+  async function decideAtCursor(kind, withReason = false) {
+    const editor = vscode.window.activeTextEditor;
+    const target = editor && decisions.at(editor.document, editor.selection.active.line);
+    if (!target) {
+      hint(editor?.document.isDirty ? 'save the file to review its changes' :
+        `no change to review at the cursor · ${alt}] goes to the next one`);
+      return;
+    }
+    // Rejecting part of a new file rejects the file, which deletes it.
+    if (kind === 'reject' && target.status === 'A') {
+      const choice = await vscode.window.showWarningMessage(`Reject the new file ${path.basename(target.path)}?`,
+        { modal: true, detail: 'The agent created it, so rejecting it deletes the file when the agent finishes its turn.' },
+        'Reject File');
+      if (choice !== 'Reject File') return;
+    }
+    let text;
+    if (withReason) {
+      text = await vscode.window.showInputBox({
+        title: 'Reject this change',
+        prompt: 'Why? This is sent to the agent so it does not write the same thing again.',
+        placeHolder: 'e.g. this breaks the existing session contract',
+      });
+      if (text === undefined) return;
+    }
+    const line = editor.selection.active.line;
+    void decide(kind, target, text);
+    if (vscode.workspace.getConfiguration('stvena').get('revealNextChange', true)) {
+      const next = decisions.step(editor.document.uri, line, 1);
+      if (next) await goTo(next).catch(error => void vscode.window.showErrorMessage(`Stvena: ${error.message}`));
+      else hint('that was the last change to review');
+    }
+  }
+
+  async function acceptAll() {
+    const owners = repos.filter(repo => bridge.isLive(repo.review))
+      .map(repo => ({ repo, ...decisions.remaining(repo.root) })).filter(owner => owner.changes);
+    if (!owners.length) {
+      hint('nothing left to review');
+      return;
+    }
+    if (owners.some(owner => !bridge.supports(owner.repo.review, 'accept-all'))) {
+      void vscode.window.showErrorMessage('Stvena: this Stvena version cannot accept all changes from the editor. Update the stvena binary.');
+      return;
+    }
+    const changes = owners.reduce((sum, owner) => sum + owner.changes, 0);
+    const files = owners.reduce((sum, owner) => sum + owner.files, 0);
+    const choice = await vscode.window.showWarningMessage(
+      `Accept ${changes} change${changes === 1 ? '' : 's'} in ${files} file${files === 1 ? '' : 's'}?`,
+      { modal: true, detail: 'They stay exactly as the agent wrote them. Rejections you have queued are not affected. ' +
+        'If the agent writes anything before Stvena receives this, nothing is accepted and you can review the new changes first.' },
+      'Accept All');
+    if (choice !== 'Accept All') return;
+    for (const owner of owners) void decisions.acceptAll(owner.repo).finally(syncReview);
+    syncReview();
+  }
 
   function report(key, error) {
     const message = error.message || String(error);
@@ -64,11 +213,10 @@ function activate(context) {
     const liveEdits = repos.filter(repo => bridge.isLive(repo.state));
     const liveReviews = repos.filter(repo => bridge.isLive(repo.review));
     const live = new Set([...liveEdits, ...liveReviews]);
-    const unreviewed = liveReviews.reduce((sum, repo) => sum + repo.review.unreviewedFiles, 0);
     const failed = liveEdits.some(repo => repo.state.error) || errors.size > 0;
     const queued = decisions.pending(repos);
-    const suffix = (unreviewed ? ` · ${unreviewed} to review` : '') +
-      (queued ? ` · ${queued.count} rejected${queued.appliesAt === 'now' ? '' : ' pending'}` : '');
+    // What is left to review has its own item; this one says how Stvena is.
+    const suffix = queued ? ` · ${queued.count} rejected${queued.appliesAt === 'now' ? '' : ' pending'}` : '';
     status.text = `$(pulse) Stvena: ${!following ? 'Paused' : failed ? 'Waiting for capture' : live.size ? 'Following' : 'Waiting'}${suffix}`;
     status.command = queued && queued.appliesAt !== 'now' ? 'stvena.applyRejections' : 'stvena.toggleFollow';
     const latestVisible = latest && rows.some(row => row.repo.root === latest.repo.root && row.kind === latest.kind &&
@@ -140,7 +288,7 @@ function activate(context) {
   // Stvena did with it once the acknowledgement arrives.
   async function handOff(request) {
     const target = activeEditorTarget();
-    const written = await bridge.writeRequest(target.repo, { ...request, path: target.path,
+    const written = await sendRequest(target.repo.root, { ...request, path: target.path,
       line: target.line, endLine: target.endLine });
     handoffs.set(written.id, Date.now());
   }
@@ -161,7 +309,7 @@ function activate(context) {
   async function fileDecision(action) {
     try {
       const target = activeEditorTarget();
-      await decisions.decide(action, { root: target.repo.root, path: target.path, start: 1, end: 1 });
+      await decide(action, { root: target.repo.root, path: target.path, start: 1, end: 1 });
     } catch (error) {
       void vscode.window.showErrorMessage(`Stvena: ${error.message}`);
     }
@@ -170,7 +318,7 @@ function activate(context) {
   async function sendEditorRequest(action) {
     try {
       const target = activeEditorTarget();
-      await bridge.writeRequest(target.repo, { action, path: target.path, line: target.line, endLine: target.endLine });
+      await sendRequest(target.repo.root, { action, path: target.path, line: target.line, endLine: target.endLine });
       void vscode.window.showInformationMessage(action === 'review' ?
         `Sent ${target.path}:${target.line} to Stvena review.` :
         `Sent ${target.path}:${target.line}–${target.endLine} to Stvena context.`);
@@ -285,6 +433,7 @@ function activate(context) {
       markers.refresh(row => rows.some(current => current.repo.root === row.repo.root &&
         current.kind === row.kind && current.file.path === row.file.path && current.at === row.at && current.id === row.id));
       decisions.update(repos);
+      syncReview();
       reportHandoffs();
       selection.refresh();
       changes.fire();
@@ -296,15 +445,23 @@ function activate(context) {
   }
 
   const timer = setInterval(() => void poll().catch(error => report('connection', error)), 700);
-  context.subscriptions.push(changes, output, tree, status,
+  context.subscriptions.push(changes, output, tree, status, remainingStatus,
+    vscode.window.onDidChangeTextEditorSelection(() => syncCursor()),
+    vscode.window.onDidChangeActiveTextEditor(() => syncCursor()),
     vscode.window.onDidChangeVisibleTextEditors(() => markers.refresh(() => true)),
     vscode.workspace.onDidChangeTextDocument(() => markers.refresh(() => true)),
     vscode.workspace.onDidChangeWorkspaceFolders(() => { discoveryAt = 0; }),
     vscode.commands.registerCommand('stvena.openChange', row => show(row)),
-    vscode.commands.registerCommand('stvena.acceptHunk', target => decisions.decide('accept', target)),
-    vscode.commands.registerCommand('stvena.unacceptHunk', target => decisions.decide('unaccept', target)),
-    vscode.commands.registerCommand('stvena.rejectHunk', target => decisions.decide('reject', target)),
-    vscode.commands.registerCommand('stvena.undoRejectHunk', target => decisions.decide('undo-reject', target)),
+    vscode.commands.registerCommand('stvena.acceptHunk', target => decide('accept', target)),
+    vscode.commands.registerCommand('stvena.unacceptHunk', target => decide('unaccept', target)),
+    vscode.commands.registerCommand('stvena.rejectHunk', target => decide('reject', target)),
+    vscode.commands.registerCommand('stvena.undoRejectHunk', target => decide('undo-reject', target)),
+    vscode.commands.registerCommand('stvena.acceptChangeAtCursor', () => decideAtCursor('accept')),
+    vscode.commands.registerCommand('stvena.rejectChangeAtCursor', () => decideAtCursor('reject')),
+    vscode.commands.registerCommand('stvena.rejectChangeAtCursorWithReason', () => decideAtCursor('reject', true)),
+    vscode.commands.registerCommand('stvena.nextChange', () => step(1)),
+    vscode.commands.registerCommand('stvena.previousChange', () => step(-1)),
+    vscode.commands.registerCommand('stvena.acceptAll', () => acceptAll()),
     vscode.commands.registerCommand('stvena.rejectHunkWithReason', async target => {
       const reason = await vscode.window.showInputBox({
         title: 'Reject this change',
@@ -313,7 +470,7 @@ function activate(context) {
       });
       // An empty box still rejects; only Escape cancels.
       if (reason === undefined) return;
-      await decisions.decide('reject', target, reason);
+      await decide('reject', target, reason);
     }),
     vscode.commands.registerCommand('stvena.askAgent', async () => {
       let target;
