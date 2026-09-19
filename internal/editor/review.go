@@ -24,12 +24,18 @@ type ReviewFocus struct {
 
 // ReviewHunk is one change block located in the ordinary working file. It
 // carries no patch text; the TUI remains the authoritative diff surface.
+// Removed lists the lines the block replaced as [start, count] runs numbered
+// in the file's Before blob, so an editor can show them from the object store.
+// A block with Removed and no Added only deleted lines; Start then names the
+// line that now follows them.
 type ReviewHunk struct {
-	ID       string `json:"id"`
-	Start    int    `json:"start"`
-	End      int    `json:"end"`
-	Reviewed bool   `json:"reviewed,omitempty"`
-	Rejected bool   `json:"rejected,omitempty"`
+	ID       string   `json:"id"`
+	Start    int      `json:"start"`
+	End      int      `json:"end"`
+	Added    int      `json:"added,omitempty"`
+	Removed  [][2]int `json:"removed,omitempty"`
+	Reviewed bool     `json:"reviewed,omitempty"`
+	Rejected bool     `json:"rejected,omitempty"`
 }
 
 type ReviewFile struct {
@@ -39,6 +45,7 @@ type ReviewFile struct {
 	Reviewed bool         `json:"reviewed,omitempty"`
 	Rejected bool         `json:"rejected,omitempty"`
 	Binary   bool         `json:"binary,omitempty"`
+	Before   string       `json:"before,omitempty"` // blob the hunks' Removed lines are numbered in
 	Hunks    []ReviewHunk `json:"hunks,omitempty"`
 }
 
@@ -99,7 +106,7 @@ type ReviewUpdate struct {
 }
 
 // Features lists the request actions this build accepts.
-var Features = []string{"review", "context", "accept", "unaccept", "reject", "undo-reject", "apply-rejections", "next-unreviewed", "prompt", "paste"}
+var Features = []string{"review", "context", "accept", "unaccept", "reject", "undo-reject", "apply-rejections", "next-unreviewed", "prompt", "paste", "accept-all"}
 
 // Protocol limits. A very large change set is reported truncated rather than
 // written in full: the descriptor is polled, not streamed.
@@ -181,7 +188,8 @@ func (p *ReviewPublisher) Close() {
 
 // Request is a user-initiated editor action. Path, Line and EndLine locate the
 // change; HunkID names one change block and is empty for a whole file. Text
-// carries an optional reason for a rejection.
+// carries an optional reason for a rejection. Tree names the captured tree the
+// editor was showing, for actions that must not reach changes it never drew.
 type Request struct {
 	Version   int       `json:"version"`
 	Session   string    `json:"session"`
@@ -192,6 +200,7 @@ type Request struct {
 	EndLine   int       `json:"endLine"`
 	HunkID    string    `json:"hunkId,omitempty"`
 	Text      string    `json:"text,omitempty"`
+	Tree      string    `json:"tree,omitempty"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
@@ -200,7 +209,7 @@ type Request struct {
 const MaxRequestText = 4096
 
 // pathlessActions operate on the whole queue rather than one change.
-var pathlessActions = map[string]bool{"apply-rejections": true, "next-unreviewed": true}
+var pathlessActions = map[string]bool{"apply-rejections": true, "next-unreviewed": true, "accept-all": true}
 
 func validAction(action string) bool {
 	for _, known := range Features {
@@ -249,7 +258,7 @@ func (r *RequestReader) Poll() (*Request, error) {
 	}
 	r.lastID = request.ID
 	if request.Version != 1 || request.ID == "" || !validAction(request.Action) ||
-		len(request.Text) > MaxRequestText || !validHunkID(request.HunkID) ||
+		len(request.Text) > MaxRequestText || !validHunkID(request.HunkID) || !validTree(request.Tree) ||
 		request.UpdatedAt.IsZero() || time.Since(request.UpdatedAt) > time.Minute || time.Since(request.UpdatedAt) < -time.Minute {
 		return nil, fmt.Errorf("invalid or expired editor request")
 	}
@@ -270,6 +279,18 @@ func validHunkID(id string) bool {
 		return false
 	}
 	_, err := hex.DecodeString(id)
+	return err == nil
+}
+
+// validTree accepts a full object ID, or none at all.
+func validTree(tree string) bool {
+	if tree == "" {
+		return true
+	}
+	if len(tree) != 40 && len(tree) != 64 {
+		return false
+	}
+	_, err := hex.DecodeString(tree)
 	return err == nil
 }
 

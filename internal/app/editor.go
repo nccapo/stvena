@@ -100,6 +100,9 @@ func (s *screenState) applyEditorRequest(request editor.Request) {
 		s.review.Key("N", s.visibleLines())
 		s.ack(request, "applied", "")
 		return
+	case "accept-all":
+		s.acceptAllFromEditor(request)
+		return
 	case "prompt":
 		s.applyEditorPrompt(request)
 		return
@@ -215,7 +218,10 @@ func (s *screenState) reviewFilesForEditor() ([]editor.ReviewFile, bool) {
 			Reviewed: s.review.Reviewed(f), Rejected: rejectedFiles[f.Key()],
 		}
 		if !f.Binary && !f.Truncated && f.Status != "U" {
-			spans := diffview.HunkSpans(f)
+			if strings.Trim(f.BeforeOID, "0") != "" {
+				entry.Before = f.BeforeOID
+			}
+			spans, changes := diffview.HunkSpans(f), diffview.HunkChanges(f)
 			for h, span := range spans {
 				if hunkBudget <= 0 {
 					truncated = true
@@ -223,16 +229,88 @@ func (s *screenState) reviewFilesForEditor() ([]editor.ReviewFile, bool) {
 				}
 				hunkBudget--
 				id := review.HunkID(f, h)
-				entry.Hunks = append(entry.Hunks, editor.ReviewHunk{
+				hunk := editor.ReviewHunk{
 					ID: editor.HunkRef(id), Start: span.Start, End: span.End,
 					Reviewed: s.review.HunkReviewed(f, h),
 					Rejected: entry.Rejected || rejectedHunks[id],
-				})
+				}
+				// The editor draws only undecided blocks, so only they need to
+				// say what they replaced; the descriptor stays small.
+				if h < len(changes) && entry.Before != "" && !hunk.Reviewed && !hunk.Rejected && !entry.Reviewed {
+					hunk.Added = changes[h].Added
+					for _, run := range changes[h].Removed {
+						hunk.Removed = append(hunk.Removed, [2]int{run.Start, run.Count})
+					}
+				}
+				entry.Hunks = append(entry.Hunks, hunk)
 			}
 		}
 		files = append(files, entry)
 	}
 	return files, truncated
+}
+
+// acceptAllFromEditor accepts every undecided change the editor was showing.
+// The editor names the tree it counted from; if the agent has written since,
+// accepting would take changes the user never saw, so the request is refused
+// and the editor shows the new ones instead. Pending rejections are left alone.
+func (s *screenState) acceptAllFromEditor(request editor.Request) {
+	if request.Tree == "" || request.Tree != s.sessionView.Tree || s.sessionView.Err != nil {
+		s.ack(request, "refused", "New changes arrived before you confirmed · review them, then accept all again")
+		return
+	}
+	if _, truncated := s.reviewFilesForEditor(); truncated {
+		s.ack(request, "refused", "Too many changes for the editor to have shown them all · accept them in Stvena")
+		return
+	}
+	rejectedFiles, rejectedHunks := map[string]bool{}, map[string]bool{}
+	for _, r := range s.review.PendingRejections() {
+		if r.HunkID == "" {
+			rejectedFiles[r.File.Key()] = true
+		} else {
+			rejectedHunks[r.HunkID] = true
+		}
+	}
+	changes, files := 0, 0
+	for _, f := range s.sessionView.Files {
+		if rejectedFiles[f.Key()] || s.review.Reviewed(f) || f.Truncated || f.Status == "U" {
+			continue
+		}
+		spans := diffview.HunkSpans(f)
+		if f.Binary || len(spans) == 0 {
+			s.review.SetFileReviewed(f, true)
+			changes, files = changes+1, files+1
+			continue
+		}
+		accepted := 0
+		for h := range spans {
+			if s.review.HunkReviewed(f, h) || rejectedHunks[review.HunkID(f, h)] {
+				continue
+			}
+			s.review.SetHunkReviewed(f, h, true)
+			accepted++
+		}
+		if accepted > 0 {
+			changes, files = changes+accepted, files+1
+		}
+	}
+	if changes == 0 {
+		s.ack(request, "refused", "Nothing is left to accept")
+		return
+	}
+	if err := s.review.Save(); err != nil {
+		s.ack(request, "refused", err.Error())
+		return
+	}
+	s.ack(request, "applied", fmt.Sprintf("Accepted %d change%s in %d file%s from the editor",
+		changes, plural(changes), files, plural(files)))
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }
 
 // pendingRejectionState tells the editor how many rejections are queued and

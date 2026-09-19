@@ -78,8 +78,11 @@ cannot do. See the [changelog](CHANGELOG.md).
 | Where | Action |
 | --- | --- |
 | Above each change block | **✓ Accept**, **✗ Reject**, **Reject with reason…** |
+| Hovering a change block | The lines the agent removed or replaced |
 | Editor context menu | Accept or reject every change in the file |
 | Status bar | Pending rejections; click to apply them now |
+| Status bar | Changes left to review; click to go to the next one |
+| Keyboard | See [Review with the keyboard](#review-with-the-keyboard) |
 | Explorer | A badge per file with the blocks left to review |
 
 Once you accept or reject a block, its highlight and actions leave the editor at
@@ -105,6 +108,39 @@ explanation rather than silently kept.
 Markers and actions are hidden while a file has unsaved changes, since the
 captured lines no longer match what is on screen. Save, and they return. Set
 `stvena.showCodeLens` to false to keep the tinting without the buttons.
+
+## Review with the keyboard
+
+| Key (macOS / Linux) | Action |
+| --- | --- |
+| **⌥Y** / **Alt+Y** | Accept the change at the cursor |
+| **⌥N** / **Alt+N** | Reject the change at the cursor |
+| **⌥]** / **Alt+]** | Go to the next change to review |
+| **⌥[** / **Alt+[** | Go to the previous change to review |
+
+After accepting or rejecting, the cursor moves to the next change, into the next
+file when this one is done, so a review is a run of **⌥Y**, **⌥Y**, **⌥N**. Set
+`stvena.revealNextChange` to `false` to stay put. The keys only apply while the
+cursor is on a change (accept and reject) or while there is something left to
+review (next and previous), so they do not take those keys from other
+extensions the rest of the time; rebind them under **Stvena** in Keyboard
+Shortcuts. Rejecting part of a new file rejects the whole file, which deletes
+it, so that one asks first. **Reject Change at Cursor with Reason…** has no key
+by default.
+
+**Stvena: Accept All Remaining Changes…** accepts everything left after a
+confirmation that states the count. If the agent writes anything before Stvena
+receives it, nothing is accepted and the new changes appear for review instead.
+Queued rejections stay rejected.
+
+## What a change replaced
+
+The file shows the code as it is now, so hover a block to see what it replaced:
+the removed lines, marked `-`, with unchanged lines between two removals for
+context. A block that only deleted lines has nothing left to tint; a dashed
+rule marks where they were, with a label such as **− 6 lines removed above**.
+Long replacements are cut to 30 lines — review the block in Stvena to read the
+rest.
 
 ## Troubleshooting
 
