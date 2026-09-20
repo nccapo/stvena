@@ -458,6 +458,74 @@ func TestEditorRefusesAStaleHunkToken(t *testing.T) {
 	}
 }
 
+func TestEditorAcceptAllTakesOnlyWhatTheEditorShowed(t *testing.T) {
+	s, file := editorState(t)
+	all := func(tree string) editor.Request {
+		request := editorRequest("accept-all", "", "")
+		request.Tree = tree
+		return request
+	}
+
+	// The agent wrote after the editor counted: nothing is accepted.
+	s.applyEditorRequest(all("an older tree"))
+	if s.lastEditorRequest.Status != "refused" || s.review.HunkReviewed(file, 0) {
+		t.Fatalf("accepted changes from a tree the editor never showed: %+v", s.lastEditorRequest)
+	}
+
+	// A queued rejection stays rejected; everything else is accepted.
+	if err := s.review.Reject(file, 1, 10, 10, ""); err != nil {
+		t.Fatal(err)
+	}
+	s.applyEditorRequest(all(s.sessionView.Tree))
+	if s.lastEditorRequest.Status != "applied" || s.lastEditorRequest.Message != "Accepted 1 change in 1 file from the editor" {
+		t.Fatalf("accept-all outcome: %+v", s.lastEditorRequest)
+	}
+	if !s.review.HunkReviewed(file, 0) || s.review.HunkReviewed(file, 1) {
+		t.Fatal("accept-all did not skip the rejected hunk")
+	}
+	if len(s.review.PendingRejections()) != 1 {
+		t.Fatal("accept-all dropped a pending rejection")
+	}
+
+	s.applyEditorRequest(all(s.sessionView.Tree))
+	if s.lastEditorRequest.Status != "refused" {
+		t.Fatalf("a second accept-all claimed to accept something: %+v", s.lastEditorRequest)
+	}
+}
+
+func TestPublishedHunksNameTheLinesTheyReplaced(t *testing.T) {
+	s, file := editorState(t)
+	files, _ := s.reviewFilesForEditor()
+	if len(files) != 1 || files[0].Before != file.BeforeOID || len(files[0].Before) != 40 {
+		t.Fatalf("file does not name its before blob: %+v", files)
+	}
+	hunks := files[0].Hunks
+	if len(hunks) != 2 {
+		t.Fatalf("expected two hunks, got %+v", hunks)
+	}
+	// Each block replaced one line, numbered in the before blob.
+	for i, want := range [][2]int{{1, 1}, {10, 1}} {
+		if hunks[i].Added != 1 || len(hunks[i].Removed) != 1 || hunks[i].Removed[0] != want {
+			t.Fatalf("hunk %d does not describe what it replaced: %+v", i, hunks[i])
+		}
+	}
+	before, err := exec.Command("git", "-C", s.ws.Root, "cat-file", "blob", files[0].Before).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(string(before), "\n")
+	if lines[0] != "one" || lines[9] != "ten" {
+		t.Fatalf("removed runs do not point at the replaced lines: %q", lines)
+	}
+
+	// A decided block is never drawn, so it does not carry its old lines.
+	s.review.SetHunkReviewed(file, 0, true)
+	files, _ = s.reviewFilesForEditor()
+	if files[0].Hunks[0].Removed != nil || files[0].Hunks[1].Removed == nil {
+		t.Fatalf("decided block still describes its old lines: %+v", files[0].Hunks)
+	}
+}
+
 func TestPublishedReviewFilesCarryHunkStateAndPendingWait(t *testing.T) {
 	s, file := editorState(t)
 	s.review.SetHunkReviewed(file, 0, true)

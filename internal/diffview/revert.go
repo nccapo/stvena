@@ -186,3 +186,53 @@ func HunkSpans(f File) []LineSpan {
 	}
 	return spans
 }
+
+// LineRun is Count consecutive lines starting at Start.
+type LineRun struct {
+	Start, Count int
+}
+
+// HunkChange says what one hunk did to the file: how many lines it added, and
+// which lines of the before version it removed.
+type HunkChange struct {
+	Added   int
+	Removed []LineRun
+}
+
+// HunkChanges returns what each hunk of f changed, indexed like HunkSpans.
+// Removed lines are numbered in the before version, so an editor can show what
+// a change block replaced without the patch text.
+func HunkChanges(f File) []HunkChange {
+	var changes []HunkChange
+	old, inHunk := 1, false
+	for _, text := range f.Lines {
+		if strings.HasPrefix(text, "@@ ") {
+			fields := strings.Fields(text)
+			if len(fields) < 3 {
+				continue
+			}
+			_, _ = fmt.Sscanf(strings.Split(fields[1], ",")[0], "-%d", &old)
+			changes = append(changes, HunkChange{})
+			inHunk = true
+			continue
+		}
+		if !inHunk || len(changes) == 0 || text == "" {
+			continue
+		}
+		change := &changes[len(changes)-1]
+		switch text[0] {
+		case '+':
+			change.Added++
+		case '-':
+			if n := len(change.Removed); n > 0 && change.Removed[n-1].Start+change.Removed[n-1].Count == old {
+				change.Removed[n-1].Count++
+			} else {
+				change.Removed = append(change.Removed, LineRun{Start: old, Count: 1})
+			}
+			old++
+		case ' ':
+			old++
+		}
+	}
+	return changes
+}
