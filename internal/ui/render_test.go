@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"fmt"
+
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/vt"
 	"github.com/nccapo/stvena/internal/checks"
@@ -289,5 +291,44 @@ func TestIDEModeKeepsNoticesVisibleInTheHeader(t *testing.T) {
 	}
 	if !strings.Contains(splitScreen, "Rejected hunk") {
 		t.Fatalf("split view lost the notice entirely:\n%s", splitScreen)
+	}
+}
+
+func TestScrolledAgentPaneShowsScrollbackWithoutCursor(t *testing.T) {
+	layout := NewLayout(140, 30)
+	agent := vt.NewEmulator(layout.LeftWidth, layout.LeftHeight)
+	for i := range layout.LeftHeight * 2 {
+		_, _ = agent.Write([]byte(fmt.Sprintf("line %d\r\n", i)))
+	}
+	offset := 4
+	state := review.State{AgentScroll: offset}
+	var frame strings.Builder
+	Render(&frame, agent, &state, layout, false, true, nil)
+	if strings.Contains(frame.String(), "\x1b[?25h") {
+		t.Fatal("cursor shown while the view sits above the live screen")
+	}
+	display := vt.NewEmulator(layout.Width, layout.Height)
+	_, _ = display.Write([]byte(frame.String()))
+	if !strings.Contains(ansi.Strip(renderTerminalRow(display, 0, layout.Width)), fmt.Sprintf("Scrollback ▲%d", offset)) {
+		t.Fatal("header does not report the scrolled view")
+	}
+	for y := range layout.LeftHeight {
+		for x := range 8 {
+			want := agent.CellAt(x, y-offset)
+			if y < offset {
+				want = agent.ScrollbackCellAt(x, agent.ScrollbackLen()-offset+y)
+			}
+			got := display.CellAt(x, layout.LeftY+y)
+			if got == nil {
+				t.Fatalf("missing cell %d,%d", x, y)
+			}
+			content := " "
+			if want != nil && want.Content != "" {
+				content = want.Content
+			}
+			if got.Content != content {
+				t.Fatalf("row %d cell %d = %q, want %q", y, x, got.Content, content)
+			}
+		}
 	}
 }

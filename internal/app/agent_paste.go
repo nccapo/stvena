@@ -65,6 +65,8 @@ func (s *screenState) pasteToAgent(events chan<- any, stop <-chan struct{}) {
 		return
 	}
 	s.pastePending = true
+	// The pasted text lands on the CLI's prompt, which is on the live screen.
+	s.resumeAgentScroll()
 	s.review.Notice = "Pasting selection to " + s.agentName + "…"
 	writer := s.agentInput
 	s.workers.Add(1)

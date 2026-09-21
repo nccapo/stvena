@@ -102,6 +102,10 @@ func Render(w io.Writer, terminal *vt.Emulator, state *review.State, layout Layo
 		}
 		header = headerBG + bold + " Stvena " + reset + " · " + pane + " · " + agentOverview(state)
 	}
+	scrollback := max(0, state.AgentScroll)
+	if scrollback > 0 {
+		header += yellow + fmt.Sprintf(" · Scrollback ▲%d", scrollback) + reset
+	}
 	if len(state.Attachments) > 0 {
 		header += cyan + fmt.Sprintf(" · Context: %d (B)", len(state.Attachments)) + reset
 	}
@@ -133,8 +137,10 @@ func Render(w io.Writer, terminal *vt.Emulator, state *review.State, layout Layo
 		rows[y+1] = reviewRow(row, layout.Width)
 	}
 
+	// A scrolled view moves the whole pane up: rows above the live screen come
+	// from scrollback, so their index is negative.
 	for y := 0; y < layout.LeftHeight && layout.LeftY+y < layout.FooterY; y++ {
-		rows[layout.LeftY+y] = renderTerminalRow(terminal, y, layout.LeftWidth)
+		rows[layout.LeftY+y] = renderTerminalRow(terminal, y-scrollback, layout.LeftWidth)
 	}
 	cursor := terminal.CursorPosition()
 
@@ -191,7 +197,7 @@ func Render(w io.Writer, terminal *vt.Emulator, state *review.State, layout Layo
 		fmt.Fprintf(&out, "\x1b[%d;1H%s\x1b[0m\x1b[K", y+1, row)
 	}
 	physicalX, physicalY := 0, 0
-	if !diffFocused && cursorVisible {
+	if !diffFocused && cursorVisible && scrollback == 0 {
 		physicalX = layout.LeftX + cursor.X
 		physicalY = layout.LeftY + cursor.Y
 		if physicalX < layout.Width && physicalY < layout.FooterY {
@@ -206,8 +212,17 @@ func renderTerminalRow(terminal *vt.Emulator, y, width int) string {
 	var b strings.Builder
 	b.WriteString(reset)
 	lastStyle := ""
+	// A row above the live screen has a negative index; its cells come from
+	// scrollback, which ends with the line that left the screen last.
+	scrollback := -1
+	if y < 0 {
+		scrollback = terminal.ScrollbackLen() + y
+	}
 	for x := 0; x < width; {
-		cell := terminal.CellAt(x, y)
+		cell := terminal.CellAt(x, y) // nil for a row above the live screen.
+		if scrollback >= 0 {
+			cell = terminal.ScrollbackCellAt(x, scrollback)
+		}
 		if cell == nil {
 			b.WriteString(reset + " ")
 			lastStyle = ""

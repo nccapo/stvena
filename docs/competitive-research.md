@@ -125,8 +125,9 @@ The original comparison above describes the pre-implementation baseline. The
 following connected modules are now implemented locally:
 
 - **Usability:** review survives agent exit; standalone review, Actions menu,
-  bottom controls, review mouse handling, fullscreen/adjustable panes, persisted
-  display preferences, source search, go-to-line, clipboard and GUI editor jumps.
+  bottom controls, mouse handling in both panes, agent output scrollback,
+  fullscreen/adjustable panes, persisted display preferences, source search,
+  go-to-line, clipboard and GUI editor jumps.
 - **Readability:** syntax-colored unified/full-file views, optional paired diffs
   with changed character spans emphasized, wrapping and source position mapping.
   Complete-file mode provides unchanged context.
@@ -147,7 +148,7 @@ following connected modules are now implemented locally:
 Still proposed: structural/moved-code diff presentation, expandable context
 within individual hunks, arbitrary line staging, tracked binary staging, restore
 with recovery UI, manual/automatic turn checkpoints, comment editing/resolution,
-worktree and multi-agent orchestration, agent scrollback, remote PR integration,
+worktree and multi-agent orchestration, remote PR integration,
 configurable keymaps and snapshot retention management. Reopening a saved session
 continues comparison from its baseline; it does not resume the agent process.
 
