@@ -152,6 +152,24 @@ func exerciseAgentTerminals(t *testing.T, width int, helper string) {
 			}
 		}
 	}
+	// A frame can reach the test in several reads, so a row that should be gone
+	// needs the rest of that frame before it is judged.
+	waitGone := func(text string) {
+		t.Helper()
+		timer := time.NewTimer(10 * time.Second)
+		defer timer.Stop()
+		for strings.Contains(screen(), text) {
+			select {
+			case data, ok := <-chunks:
+				if !ok {
+					t.Fatalf("app exited while %q was still shown", text)
+				}
+				_, _ = display.Write(data)
+			case <-timer.C:
+				t.Fatalf("timed out waiting for %q to leave the screen:\n%s", text, screen())
+			}
+		}
+	}
 	send := func(text string) {
 		t.Helper()
 		if width == 140 {
@@ -185,6 +203,25 @@ func exerciseAgentTerminals(t *testing.T, width int, helper string) {
 	waitFor("input:" + first + ":released")
 	send("first")
 	waitFor("input:" + first + ":first")
+	// Fill the pane, then walk its history with the wheel and Shift-PageUp
+	// while the agent keeps the focus.
+	var filler strings.Builder
+	for i := range 60 {
+		fmt.Fprintf(&filler, "filler-%02d\r\n", i)
+	}
+	send(filler.String())
+	waitFor("filler-59")
+	send("\x1b[<64;5;5M\x1b[<64;5;5M")
+	waitFor("Scrollback ▲6")
+	waitGone("filler-59")
+	send("\x1b[<65;5;5M")
+	waitFor("Scrollback ▲3")
+	// Paging past the oldest line stops there instead of scrolling into blanks.
+	send(strings.Repeat("\x1b[5;2~", 4))
+	waitFor("filler-00")
+	send("resumed")
+	waitFor("input:" + first + ":resumed")
+	waitGone("Scrollback ▲")
 	send("\x1d")
 	waitFor("New agent")
 	send("l")
@@ -203,10 +240,10 @@ func exerciseAgentTerminals(t *testing.T, width int, helper string) {
 	send("second")
 	waitFor("input:" + second + ":second")
 	send("\x10")
-	text = waitFor("[" + filepath.Base(executable) + " 1 ")
-	if !strings.Contains(text, "input:"+first+":first") || strings.Contains(text, "input:"+second) {
-		t.Fatal("switch did not restore the first terminal's screen")
-	}
+	waitFor("[" + filepath.Base(executable) + " 1 ")
+	waitFor("input:" + first + ":resumed")
+	// The other terminal keeps its own screen, off this one.
+	waitGone("input:" + second)
 	// Interrupting one command must leave the other usable, and q must not
 	// accidentally stop it while viewing the finished command.
 	send("\x03")

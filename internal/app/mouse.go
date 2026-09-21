@@ -6,6 +6,9 @@ import (
 	"github.com/nccapo/stvena/internal/ui"
 )
 
+// wheelLines is how far one wheel notch moves a pane.
+const wheelLines = 3
+
 func (s *screenState) mouse(sequence string) {
 	if len(sequence) < 2 {
 		return
@@ -47,12 +50,17 @@ func (s *screenState) mouse(sequence string) {
 		return
 	}
 	if button == 64 || button == 65 {
-		if x < s.layout.DiffX || x >= s.layout.DiffX+s.layout.DiffWidth || y < s.layout.DiffY || y >= s.layout.FooterY {
-			return
-		}
 		key, delta := "up", -1
 		if button == 65 {
 			key, delta = "down", 1
+		}
+		// The wheel scrolls whichever pane it sits over, focused or not.
+		if s.inAgentPane(x, y) {
+			s.scrollAgent(-delta * wheelLines)
+			return
+		}
+		if x < s.layout.DiffX || x >= s.layout.DiffX+s.layout.DiffWidth || y < s.layout.DiffY || y >= s.layout.FooterY {
+			return
 		}
 		if s.review.SelectionMouse && s.review.Panel == "" && s.review.Prompt == "" && !s.review.Menu && !s.review.Help && !s.review.Browser {
 			s.review.Scroll += delta
@@ -81,8 +89,19 @@ func (s *screenState) mouse(sequence string) {
 		}
 		s.diffFocused = true
 	}
+	// A click belongs to the pane it lands in, so the keys follow it there. An
+	// open prompt or overlay keeps review's focus until it is answered.
+	if s.inAgentPane(x, y) {
+		if !s.exited && s.review.Prompt == "" && s.review.ConfirmAction == "" && !s.review.Help && !s.review.Menu {
+			s.diffFocused = false
+		}
+		return
+	}
 	if x < s.layout.DiffX || x >= s.layout.DiffX+s.layout.DiffWidth {
 		return
+	}
+	if y >= s.layout.DiffY {
+		s.diffFocused = true
 	}
 	row := y - s.layout.DiffY
 	if s.review.Help {

@@ -88,6 +88,7 @@ type State struct {
 	AgentLabel                        string
 	AgentStatus                       string
 	AgentDraft                        bool
+	AgentScroll                       int // Lines the terminal view sits above its live screen.
 	WelcomeFrame                      int
 	Hunks                             map[string]bool
 	Rejections                        []Rejection

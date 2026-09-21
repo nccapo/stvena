@@ -192,6 +192,7 @@ but direct selection paste is supported for Codex and Claude Code.
 | **Ctrl-N / Ctrl-P** | Next / previous agent terminal |
 | **Ctrl-Y** | Next attention: error, review, waiting, changed, running, done |
 | **Ctrl-W** | Close current agent terminal and stop its command |
+| **Wheel / Shift-PgUp / Shift-PgDn** | Scroll the agent pane's output history |
 | **Ctrl-Q** | Quit Stvena and stop all agents |
 | **1 / 2 / 3 / 4** | Session / workspace / project files / branch changes |
 | **Enter / f** | Open file / return to file browser |

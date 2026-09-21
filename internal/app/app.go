@@ -354,7 +354,7 @@ func Run(args []string) error {
 					continue
 				}
 				value.agent.attention.Output(time.Now())
-				_, _ = value.agent.virtual.Write(value.data)
+				value.agent.write(value.data)
 				state.syncAgent()
 				dirty = true
 			case attentionEvent:
@@ -497,13 +497,12 @@ func Run(args []string) error {
 			if dirty {
 				state.syncAttention()
 				state.resizeAgents()
-				if wantMouse := state.diffFocused || state.review.FooterFocused || state.agentPicker != nil; mouseEnabled != wantMouse {
-					mouseEnabled = wantMouse
-					if mouseEnabled {
-						fmt.Fprint(os.Stdout, "\x1b[?1002h\x1b[?1006h")
-					} else {
-						fmt.Fprint(os.Stdout, "\x1b[?1000l\x1b[?1002l\x1b[?1006l")
-					}
+				// The wheel scrolls the agent pane as well as review, so mouse
+				// reporting stays on for both. Terminals that reserve Shift or
+				// Option for native selection can still select pane text.
+				if !mouseEnabled {
+					mouseEnabled = true
+					fmt.Fprint(os.Stdout, "\x1b[?1002h\x1b[?1006h")
 				}
 				if wantPaste := state.bracketedPaste || state.agentPicker != nil; pasteEnabled != wantPaste {
 					pasteEnabled = wantPaste
@@ -675,6 +674,8 @@ func (s *screenState) handleLegacyInput(data []byte, child io.Writer) {
 			continue
 		}
 		if !s.diffFocused && !s.review.FooterFocused {
+			// Typing resumes the live screen, as in any terminal.
+			s.resumeAgentScroll()
 			if b == '\r' || b == '\n' {
 				if s.review.AgentDraft {
 					s.review.ClearSelection()

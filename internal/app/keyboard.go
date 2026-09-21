@@ -54,6 +54,36 @@ func (s *screenState) handleInput(data []byte, child io.Writer) {
 			s.keyboardPasting = false
 		default:
 			if !s.keyboardPasting {
+				// Mouse reports belong to Stvena's panes, never to the CLI: the
+				// agent draws inside a pane, so its coordinates are not ours.
+				if isMouseReport(sequence) && !s.pastePending {
+					flush()
+					if s.review.Request == "quit-app" {
+						return
+					}
+					if !s.diffFocused && !s.review.FooterFocused && s.agentPicker == nil {
+						s.mouse(string(sequence[2:]))
+						data = data[end:]
+						continue
+					}
+				}
+				if pages, ok := agentScrollKeys[string(sequence)]; ok && !s.pastePending {
+					flush()
+					if s.review.Request == "quit-app" {
+						return
+					}
+					if s.review.Request == "paste-agent" || s.review.Request == "paste-context" || s.review.Request == "paste-checkpoint" {
+						s.pasteInput = append(s.pasteInput, data...)
+						return
+					}
+					// Shifted paging belongs to the pane that has focus. Review
+					// and the bottom panel keep their own keys.
+					if !s.diffFocused && !s.review.FooterFocused && s.agentPicker == nil {
+						s.scrollAgent(pages * s.agentPage())
+						data = data[end:]
+						continue
+					}
+				}
 				if string(sequence) == "\x1b[17~" {
 					flush()
 					if s.review.Request == "quit-app" {
@@ -107,6 +137,20 @@ func (s *screenState) flushKeyboardInput() {
 	if len(data) > 0 {
 		s.handleLegacyInput(data, s.agentInput)
 	}
+}
+
+// isMouseReport recognizes an SGR mouse event, the only mouse encoding Stvena
+// asks the terminal for.
+func isMouseReport(sequence []byte) bool {
+	return bytes.HasPrefix(sequence, []byte("\x1b[<")) &&
+		(sequence[len(sequence)-1] == 'M' || sequence[len(sequence)-1] == 'm')
+}
+
+// agentScrollKeys move the agent view by pages. Shift keeps plain Page Up and
+// Page Down for the CLI, which uses them for its own history and menus.
+var agentScrollKeys = map[string]int{
+	"\x1b[5;2~": 1,  // Shift-PageUp: older output.
+	"\x1b[6;2~": -1, // Shift-PageDown: back toward the live screen.
 }
 
 // commandShortcut maps the global shortcuts. Unknown sequences and

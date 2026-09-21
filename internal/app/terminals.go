@@ -30,8 +30,11 @@ type agentTerminal struct {
 	input                         io.Writer
 	cursorVisible, bracketedPaste bool
 	exited, draft, closed         bool
-	status                        string
-	close                         func()
+	altScreen                     bool
+	// scrollback counts the lines the view sits above the live screen.
+	scrollback int
+	status     string
+	close      func()
 }
 
 func newAgentTerminal(name string, width, height int) *agentTerminal {
@@ -59,8 +62,39 @@ func newAgentTerminal(name string, width, height int) *agentTerminal {
 				a.bracketedPaste = false
 			}
 		},
+		// The alternate screen redraws itself and keeps no history, so the view
+		// must return to the live screen before the child paints over it.
+		AltScreen: func(on bool) { a.altScreen, a.scrollback = on, 0 },
 	})
 	return a
+}
+
+// write feeds PTY output to the screen and keeps a scrolled view on the same
+// lines while fresh output pushes older ones into scrollback.
+func (a *agentTerminal) write(data []byte) {
+	before := a.virtual.ScrollbackLen()
+	_, _ = a.virtual.Write(data)
+	if a.scrollback > 0 {
+		a.scrollback += max(0, a.virtual.ScrollbackLen()-before)
+	}
+	a.clampScrollback()
+}
+
+// scrollLimit is how far above the live screen the view can move.
+func (a *agentTerminal) scrollLimit() int {
+	if a.altScreen {
+		return 0
+	}
+	return a.virtual.ScrollbackLen()
+}
+
+// scrollBy moves the view by lines; positive lines show older output.
+func (a *agentTerminal) scrollBy(lines int) {
+	a.scrollback = min(max(0, a.scrollback+lines), a.scrollLimit())
+}
+
+func (a *agentTerminal) clampScrollback() {
+	a.scrollback = min(max(0, a.scrollback), a.scrollLimit())
 }
 
 func clampScrollMargin(params ansi.Params, limit int) {
@@ -113,11 +147,13 @@ func (s *screenState) syncAgent() {
 	if a := s.activeAgent(); a != nil {
 		s.agentInput, s.agentName = a.input, agentCommand(a.name)
 		s.exited, s.bracketedPaste = a.exited, a.bracketedPaste
+		s.review.AgentScroll = a.scrollback
 		s.review.AgentStatus = a.status
 		s.review.AgentLabel = fmt.Sprintf("%s %d/%d", a.name, s.activeAgentIndex+1, len(s.agents))
 	} else {
 		s.agentInput, s.agentName = io.Discard, ""
 		s.exited, s.bracketedPaste = true, false
+		s.review.AgentScroll = 0
 		s.review.AgentStatus, s.review.AgentLabel = "Review", ""
 		s.review.AgentDraft = false
 	}
@@ -260,9 +296,48 @@ func (s *screenState) agentsRunning() bool {
 	return len(s.agents) == 0 && !s.exited
 }
 
+// scrollAgent moves the active terminal's view; positive lines show older
+// output. Typing returns to the live screen, as in any terminal.
+func (s *screenState) scrollAgent(lines int) {
+	a := s.activeAgent()
+	if a == nil || lines == 0 {
+		return
+	}
+	if a.scrollLimit() == 0 {
+		if lines > 0 && a.altScreen {
+			s.review.Notice = "This agent draws a full-screen view; scroll inside it"
+		}
+		return
+	}
+	a.scrollBy(lines)
+	s.review.AgentScroll = a.scrollback
+}
+
+// agentPage keeps a line of overlap between pages, like a pager.
+func (s *screenState) agentPage() int { return max(1, s.layout.LeftHeight-1) }
+
+// resumeAgentScroll returns the view to the live screen.
+func (s *screenState) resumeAgentScroll() {
+	if a := s.activeAgent(); a != nil && a.scrollback != 0 {
+		a.scrollback = 0
+		s.review.AgentScroll = 0
+	}
+}
+
+// inAgentPane reports whether a mouse position sits over the terminal.
+func (s *screenState) inAgentPane(x, y int) bool {
+	l := s.layout
+	return l.LeftWidth > 0 && x >= l.LeftX && x < l.LeftX+l.LeftWidth &&
+		y >= l.LeftY && y < min(l.LeftY+l.LeftHeight, l.FooterY)
+}
+
 func (s *screenState) resizeAgents() {
 	for _, a := range s.agents {
 		s.resizePTY(a.virtual, a.ptmx)
+		a.clampScrollback()
+	}
+	if a := s.activeAgent(); a != nil {
+		s.review.AgentScroll = a.scrollback
 	}
 }
 

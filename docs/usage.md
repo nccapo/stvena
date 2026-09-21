@@ -101,6 +101,26 @@ agents keep running; switching brings the selected agent into focus. Review code
 handoffs go to the selected agent. Finished terminals remain available to inspect.
 **Ctrl-C** interrupts the focused agent; **Ctrl-Q** stops all agents and exits.
 
+### Scroll back through agent output
+
+The agent pane keeps the output that scrolls off its screen. Turn the wheel over
+the pane, or press **Shift-PageUp** / **Shift-PageDown** while the agent has
+focus, to move through that history; the header shows how far above the live
+screen the view sits. Plain Page Up and Page Down still reach the CLI, which uses
+them for its own history and menus.
+
+The view stays on the same lines while the agent keeps working, and typing
+returns it to the live screen. Each terminal remembers its own position, so
+switching agents does not lose it. A CLI that paints a full-screen view of its
+own — anything that switches to the alternate screen — redraws instead of
+scrolling, so use that CLI's own scrolling there.
+
+Mouse reporting stays on for both panes, so a click focuses the pane it lands
+in and the bottom controls stay clickable from either one. An open prompt or
+overlay keeps review's focus until it is answered. In terminals that reserve
+Shift (or Option on macOS) for native selection, hold it to select and copy
+pane text.
+
 All agent terminals share the working directory and one review workspace and
 session baseline. Changes from every agent appear together in review. These are
 live terminals, not saved conversations; reopening review does not restart them.
@@ -197,7 +217,8 @@ The code viewer provides:
   location, or the nearest visible patch line.
 - Fullscreen review, adjustable pane proportions, and saved wrap/comparison/
   width preferences. Mouse clicks open files, scroll review and activate bottom
-  controls or Actions while review has focus. Left-button dragging selects code. Shift-drag can select terminal
+  controls or Actions, and a click focuses the pane it lands in. The wheel
+  scrolls whichever pane it sits over, including the agent's output history. Left-button dragging selects code. Shift-drag can select terminal
   text in terminals that reserve Shift for native selection.
 
 ## Review an evolving change
@@ -467,6 +488,7 @@ The table below lists defaults.
 | Ctrl-W | Close current agent terminal and stop its command |
 | Ctrl-Q | Close stvena and stop all running agents from either pane |
 | Ctrl-C | Native interrupt while the agent has focus |
+| Wheel, Shift-PageUp / Shift-PageDown | Scroll the agent pane's output history |
 | a | Open searchable-by-shortcut Actions menu |
 | ↑/↓, j/k | Select file or move through code |
 | Enter / f / Backspace | Open file / return to browser |
