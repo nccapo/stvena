@@ -1,0 +1,33 @@
+version: 1
+checks:
+  - id: fmt
+    argv: ["sh", "-c", "test -z \"$(gofmt -l cmd internal)\""]
+    required: true
+    timeout_seconds: 60
+  - id: vet
+    argv: ["go", "vet", "./..."]
+    required: true
+    timeout_seconds: 300
+  - id: build
+    argv: ["go", "build", "./..."]
+    required: true
+    timeout_seconds: 300
+  - id: unit
+    argv: ["go", "test", "-race", "-count=1", "./..."]
+    required: true
+    timeout_seconds: 900
+  - id: editor
+    argv: ["sh", "-c", "cd extensions/vscode && npm test"]
+    required: false
+    timeout_seconds: 300
+# TODO(Nicolas): confirm this reason, or replace it with a real `e2e` check.
+e2e_waiver: "No E2E suite yet; go test -race covers CLI/internal behaviour"
+limits:
+  max_workers: 3
+  max_repair_cycles: 3
+  max_agent_minutes: 90
+autonomous_commands:
+  - ["go", "test"]
+  - ["go", "build"]
+  - ["go", "vet"]
+  - ["gofmt"]
