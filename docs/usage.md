@@ -500,6 +500,7 @@ The table below lists defaults.
 | n / p | Next / previous file |
 | N | Open the next unreviewed file in the current view |
 | I / L | Toggle Review inbox / open observed session timeline |
+| J | Open the task brief: outcomes, constraints and evidence |
 | d/u, PageDown/PageUp | Move half a page |
 | g/G, Home/End | First / last file or source line |
 | [ / ] | Previous / next hunk or full-file change |
@@ -511,6 +512,7 @@ The table below lists defaults.
 | x / B | Collect selected code / open the saved context tray |
 | V / y / Y / e | Select range / copy code / copy path / open editor |
 | c / C / E | Add comment / view comments / copy feedback |
+| Brief panel | a add, i edit, [ / ] reorder, d remove, Space mark by hand, x attach selection, t attach latest check, c attach comment, Enter open evidence, Esc back |
 | t / T | Run checks / view results |
 | S / A | Stage or unstage file / hunk, with confirmation |
 | ? / Esc | Help / close current overlay or return to files |
@@ -550,11 +552,26 @@ terminal application's menu shortcut.
 **Ctrl-C** remains the agent's native interrupt. Ordinary review letter keys
 continue to work without a modifier.
 
+## Task brief with evidence
+
+Press **J** to keep a user-written list of outcomes and constraints for the
+current work. In Brief, **a** adds an item, **i** edits it, **[ / ]** reorders
+it, **d** removes an item or evidence link, and **Space** marks an item checked
+by hand. **x** attaches the current code selection, **t** the latest check run,
+and **c** a saved comment. **Enter** opens evidence; **Esc** returns to review.
+
+Stvena never checks an item for you, even when a check passes or an agent says
+it finished. Evidence remains attached but is marked stale when its code changes
+or a newer run of the same check exists.
+
 ## Local storage and limits
 
 Session metadata, pinned checkpoints, comments, review marks, context attachments, draft requests,
 layout preferences and the latest check result
 are stored under the OS user cache directory in `stvena/<repository hash>`.
+Brief items persist per project in `reviews.json`, with at most 30 items,
+200 characters per item and 8 evidence links per item. Evidence stores
+references, not code bodies.
 Shared shortcuts are stored separately at `stvena/hotkeys.json` under the OS
 user configuration directory: `~/Library/Application Support` on macOS, and
 `$XDG_CONFIG_HOME` (or `~/.config`) on Linux. Closing an unedited window does not

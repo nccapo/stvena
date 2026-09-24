@@ -198,12 +198,61 @@ func renderOverlay(s *review.State, width, height int) []string {
 		if len(s.Timeline) == 0 {
 			content = []string{"No change batches observed yet.", "Batches appear after a stable captured tree changes."}
 		}
+	case s.Panel == "Brief":
+		items, checked, stale := s.BriefCounts()
+		title = fmt.Sprintf("Task brief · %d items · %d checked", items, checked)
+		if stale > 0 {
+			title += fmt.Sprintf(" · %d stale", stale)
+		}
+		footer = " a: Add · i: Edit · [/] : Move · d: Remove · Space: Mark by hand · x/t/c: Evidence · Enter: Open · Esc: Back"
+		rows := s.BriefRows()
+		start, count := PanelListWindow(s.BriefIndex, len(rows), height)
+		for i := start; i < start+count; i++ {
+			row := rows[i]
+			item := s.Brief[row.Item]
+			style, marker := "", "  "
+			if i == s.BriefIndex {
+				style, marker = focusedBG+bold, "› "
+			}
+			if row.Evidence < 0 {
+				box := "[ ]"
+				if item.Done {
+					box = "[x]"
+				}
+				content = append(content, style+marker+box+" "+safeText(item.Text)+muted+fmt.Sprintf(" · %d evidence", len(item.Evidence))+reset)
+			} else {
+				e := item.Evidence[row.Evidence]
+				line := "    " + e.Kind + ": " + safeText(e.Label)
+				if out, reason := s.BriefEvidenceStale(e); out {
+					line += muted + " · stale: " + safeText(reason)
+				}
+				content = append(content, style+marker+line+reset)
+			}
+		}
+		if len(rows) == 0 {
+			content = []string{"No brief items yet. Press a to add an outcome or constraint.", "Only you can check items by hand."}
+		}
+	case s.Panel == "Brief comments":
+		title = fmt.Sprintf("Brief · choose a saved comment · %d", len(s.Comments))
+		footer = " Enter: Attach · Esc: Back"
+		start, count := PanelListWindow(s.BriefCommentIndex, len(s.Comments), height)
+		for i := start; i < start+count; i++ {
+			c := s.Comments[i]
+			style, marker := "", "  "
+			if i == s.BriefCommentIndex {
+				style, marker = focusedBG+bold, "› "
+			}
+			content = append(content, style+marker+safeText(c.Path)+fmt.Sprintf(":%d · ", c.Start)+safeText(c.Text)+reset)
+		}
+		if len(s.Comments) == 0 {
+			content = []string{"No saved comments. Select code and press c in review to save one."}
+		}
 	}
 	var rows []string
 	add := func(t string) { rows = append(rows, reviewRow(t, width)) }
 	add(headerBG + bold + " " + title)
 	start := 0
-	if s.Panel != "" && s.Panel != "Context" && s.Panel != "Problems" && s.Panel != "Timeline" {
+	if s.Panel != "" && s.Panel != "Context" && s.Panel != "Problems" && s.Panel != "Timeline" && s.Panel != "Brief" && s.Panel != "Brief comments" {
 		start = min(s.PanelScroll, max(0, len(content)-max(1, height-2)))
 		s.PanelScroll = start
 	}

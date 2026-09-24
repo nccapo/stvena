@@ -99,11 +99,14 @@ type State struct {
 	SettingsDirty                     bool
 	History                           map[string]Record
 	Comments                          []Comment
+	Brief                             []BriefItem
+	BriefIndex, BriefCommentIndex     int
 	Timeline                          []TimelineEntry
 	TimelineIndex, NewerBatches       int
 	LastCheck, CheckTree, CheckStatus string
 	CheckLines                        []string
 	CheckRunning                      bool
+	CheckFinishedAt                   time.Time
 	ConfirmAction, ConfirmDetail      string
 	savePath                          string
 	retained                          map[string]bool

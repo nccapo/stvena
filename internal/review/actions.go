@@ -23,6 +23,7 @@ var Actions = []Action{
 	{"4", "Branch changes", "Committed and working changes since the default-branch merge base"},
 	{"I", "Review inbox", "Show only files that still need review in the current source"},
 	{"L", "Session timeline", "Inspect stable change batches observed during this Stvena session"},
+	{"J", "Task brief", "List outcomes and constraints, attach evidence, and mark items yourself"},
 	{"/", "Find text / file", "Search code, or filter paths in the file browser"},
 	{":", "Go to line", "Jump directly to a source line"},
 	{"s", "Side-by-side diff", "Compare old and new code"},
@@ -128,6 +129,18 @@ func (s *State) AdvancedKey(key string, visible int) bool {
 			case "Context request":
 				s.ContextQuestion = pasteText(value)
 				s.Request = "save"
+			case "Brief item":
+				if err := s.AddBriefItem(value); err != nil {
+					s.Notice = err.Error()
+				} else {
+					s.BriefIndex = len(s.BriefRows()) - 1
+				}
+			case "Edit brief item":
+				if row, ok := s.selectedBriefRow(); ok {
+					if err := s.EditBriefItem(row.Item, value); err != nil {
+						s.Notice = err.Error()
+					}
+				}
 			case "Run checks":
 				if strings.TrimSpace(value) != "" {
 					s.LastCheck = value
@@ -151,6 +164,9 @@ func (s *State) AdvancedKey(key string, visible int) bool {
 		return true
 	}
 	if s.contextKey(key, visible) {
+		return true
+	}
+	if s.briefKey(key, visible) {
 		return true
 	}
 	if s.Panel == "Checkpoint draft" {
@@ -287,6 +303,9 @@ func (s *State) AdvancedKey(key string, visible int) bool {
 	case "L":
 		s.Panel = "Timeline"
 		s.TimelineIndex = max(0, len(s.Timeline)-1)
+	case "J":
+		s.Panel = "Brief"
+		s.BriefIndex, s.PanelScroll = 0, 0
 	case "a":
 		s.Menu = true
 	case ":":

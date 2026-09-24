@@ -214,6 +214,7 @@ func (s *screenState) setCheck(r checks.Result) {
 	s.review.CheckSourceChanged = r.SourceChanged
 	s.review.CheckTree = r.Tree
 	s.review.CheckStatus = r.Status
+	s.review.CheckFinishedAt = r.FinishedAt
 	if r.SourceChanged {
 		s.review.CheckStatus += " · command changed source"
 	}
@@ -456,6 +457,8 @@ func (s *screenState) dispatch(ctx context.Context, events chan<- any, stop <-ch
 		s.review.PatchFocused = true
 		s.review.Scroll = 0
 		s.review.Notice = "Changes since last review · P returns to live"
+	case "brief-open":
+		s.openBriefEvidence()
 	case "problem-open", "problem-add":
 		if r == "problem-open" && s.review.Checkpoint != nil {
 			s.review.Notice = "Checkpoint stays pinned · x: collect failure · P: resume live to open tested source"

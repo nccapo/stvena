@@ -30,6 +30,7 @@ type Saved struct {
 	Hunks           map[string]bool
 	History         map[string]Record
 	Comments        []Comment
+	Brief           []BriefItem
 	LastCheck       string
 	Attachments     []Attachment
 	Rejections      []Rejection
@@ -58,6 +59,7 @@ func (s *State) Load(ws repo.Workspace) error {
 		return fmt.Errorf("saved reviews could not be read: %w", err)
 	}
 	s.Attachments, s.ContextQuestion, s.Rejections = saved.Attachments, saved.ContextQuestion, saved.Rejections
+	s.Brief = saved.Brief
 	s.reviewed, s.Hunks, s.History, s.Comments, s.LastCheck = saved.Reviewed, saved.Hunks, saved.History, saved.Comments, saved.LastCheck
 	s.marksBase, s.marksStamp = marks{reviewed: saved.Reviewed, hunks: saved.Hunks}.clone(), stampOf(s.savePath)
 	if saved.Checkpoint != nil {
@@ -103,6 +105,15 @@ func (s *State) Save() error {
 			return err
 		}
 	}
+	for _, item := range s.Brief {
+		for _, evidence := range item.Evidence {
+			if evidence.Kind == "code" {
+				if err := retain(evidence.Tree); err != nil {
+					return err
+				}
+			}
+		}
+	}
 	if s.Checkpoint != nil {
 		if err := retain(s.Checkpoint.Snapshot.Tree); err != nil {
 			return err
@@ -126,7 +137,7 @@ func (s *State) Save() error {
 	} else {
 		s.marksBase = marks{}
 	}
-	err := session.AtomicJSON(s.savePath, Saved{Checkpoint: s.Checkpoint, Reviewed: s.reviewed, Hunks: s.Hunks, History: s.History, Comments: s.Comments, LastCheck: s.LastCheck, Attachments: s.Attachments, ContextQuestion: s.ContextQuestion, Rejections: s.Rejections})
+	err := session.AtomicJSON(s.savePath, Saved{Checkpoint: s.Checkpoint, Reviewed: s.reviewed, Hunks: s.Hunks, History: s.History, Comments: s.Comments, Brief: s.Brief, LastCheck: s.LastCheck, Attachments: s.Attachments, ContextQuestion: s.ContextQuestion, Rejections: s.Rejections})
 	if err != nil {
 		return err
 	}
@@ -176,17 +187,20 @@ func (s *State) AddComment(text string) error {
 	return s.Save()
 }
 func (s *State) CommentStale(c Comment) bool {
+	return s.revisionStale(c.Path, c.Scope, c.Revision)
+}
+func (s *State) revisionStale(path, scope, revision string) bool {
 	for _, f := range s.Latest.Files {
-		if f.Path == c.Path && string(f.Scope) == c.Scope {
-			return diffview.Revision(f) != c.Revision
+		if f.Path == path && string(f.Scope) == scope {
+			return diffview.Revision(f) != revision
 		}
 	}
 	if s.Latest.Root != "" {
 		return true
 	}
 	for _, f := range s.Snapshot.Files {
-		if f.Path == c.Path && string(f.Scope) == c.Scope {
-			return diffview.Revision(f) != c.Revision
+		if f.Path == path && string(f.Scope) == scope {
+			return diffview.Revision(f) != revision
 		}
 	}
 	return true

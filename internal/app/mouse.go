@@ -128,12 +128,16 @@ func (s *screenState) mouse(sequence string) {
 			s.review.Key(key, s.visibleLines())
 			return
 		}
-		if s.review.Panel == "Context" || s.review.Panel == "Problems" || s.review.Panel == "Timeline" {
+		if s.review.Panel == "Context" || s.review.Panel == "Problems" || s.review.Panel == "Timeline" || s.review.Panel == "Brief" || s.review.Panel == "Brief comments" {
 			index, total := s.review.TrayIndex, len(s.review.Attachments)
 			if s.review.Panel == "Problems" {
 				index, total = s.review.ProblemIndex, len(s.review.Problems)
 			} else if s.review.Panel == "Timeline" {
 				index, total = s.review.TimelineIndex, len(s.review.Timeline)
+			} else if s.review.Panel == "Brief" {
+				index, total = s.review.BriefIndex, len(s.review.BriefRows())
+			} else if s.review.Panel == "Brief comments" {
+				index, total = s.review.BriefCommentIndex, len(s.review.Comments)
 			}
 			start, count := ui.PanelListWindow(index, total, s.layout.DiffHeight)
 			if row >= 1 && row <= count {
@@ -141,6 +145,14 @@ func (s *screenState) mouse(sequence string) {
 					s.review.TrayIndex = start + row - 1
 				} else if s.review.Panel == "Problems" {
 					s.review.ProblemIndex = start + row - 1
+					s.review.Key("enter", s.visibleLines())
+				} else if s.review.Panel == "Brief" {
+					s.review.BriefIndex = start + row - 1
+					if s.review.BriefRows()[s.review.BriefIndex].Evidence >= 0 {
+						s.review.Key("enter", s.visibleLines())
+					}
+				} else if s.review.Panel == "Brief comments" {
+					s.review.BriefCommentIndex = start + row - 1
 					s.review.Key("enter", s.visibleLines())
 				} else {
 					s.review.TimelineIndex = start + row - 1

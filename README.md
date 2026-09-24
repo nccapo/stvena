@@ -205,6 +205,7 @@ but direct selection paste is supported for Codex and Claude Code.
 | **X / D** | Reject the hunk or file / open the rejections tray |
 | **O** | IDE mode: give the agent the whole terminal |
 | **I / L** | Toggle review inbox / open observed session timeline |
+| **J** | Open the task brief: outcomes, constraints and evidence |
 | **t / T** | Run a check / inspect results |
 | **a / ?** | Actions menu / keyboard help |
 
@@ -273,6 +274,19 @@ handoff. Press Enter yourself after reading it. **Actions → Auto-send
 rejections** (**W**) submits automatically instead; it is off by default, is
 shared across projects, and still refuses to submit when you have unsent input
 in the agent, because Stvena cannot see the CLI's input line.
+
+## Task brief with evidence
+
+Press **J** to write a short list of outcomes and constraints for the current
+work. In the Brief panel, **a** adds an item, **i** edits it, **[ / ]** reorders
+it, and **d** removes the selected item or evidence link. **Space** marks an item
+checked by hand. **x** attaches the current code selection, **t** the latest
+check run, and **c** a saved comment. **Enter** opens evidence; **Esc** returns
+to review.
+
+Stvena never checks an item for you: a passing check or an agent saying it
+finished does not mark it done. Evidence is marked stale, never deleted, when
+its code changes or a newer run of the same check exists.
 
 ## IDE mode
 
@@ -504,6 +518,8 @@ network access and data handling still apply.
 
 - Review metadata, comments, snippets, draft requests, layout preferences, and check
   output are stored under your OS cache directory in `stvena/<repository hash>`.
+- The task brief is stored per project with review state. It holds at most 30
+  items, 200 characters per item, and 8 evidence links per item.
 - Custom shortcuts are shared across projects in your OS user configuration
   directory at `stvena/hotkeys.json`.
 - Captured code is retained in local Git objects under `refs/stvena/sessions/*`

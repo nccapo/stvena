@@ -175,6 +175,10 @@ func basePanelControls(s *review.State) []reviewControl {
 		return []reviewControl{{"o", "o: Problems"}, {"t", "t: Run / rerun"}, {"esc", "Esc: Back"}}
 	case "Timeline":
 		return []reviewControl{{"enter", "Enter: Open batch"}, {"esc", "Esc: Back"}}
+	case "Brief":
+		return []reviewControl{{"enter", "Enter: Open evidence"}, {"a", "a: Add"}, {" ", "Space: Mark by hand"}, {"d", "d: Remove"}, {"esc", "Esc: Back"}}
+	case "Brief comments":
+		return []reviewControl{{"enter", "Enter: Attach"}, {"esc", "Esc: Back"}}
 	}
 	return nil
 }
