@@ -2,7 +2,15 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
-const { createReviewUI, optimisticLifetimeMs, hoverLineLimit } = require('../src/review');
+const { createReviewUI, key, optimisticLifetimeMs, hoverLineLimit } = require('../src/review');
+
+test('review key uses NUL separators and preserves an empty hunk ID', () => {
+  const withHunk = key('a b', 'c', 'h');
+  assert.deepEqual([...withHunk].map(char => char.charCodeAt(0)),
+    [97, 32, 98, 0, 99, 0, 104]);
+  assert.equal(key('a', 'b'), `a\u0000b\u0000`);
+  assert.notEqual(key('a b', 'c'), key('a', 'b c'));
+});
 
 const HUNK = 'a'.repeat(64);
 const OTHER = 'b'.repeat(64);
