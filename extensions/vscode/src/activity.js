@@ -86,14 +86,25 @@ function createMarkers(vscode, context) {
       applied.set(editor, { document: editor.document, version: editor.document.version, values });
     }
   }
+  function select(row, uri) {
+    const entry = { row, uri: uri.toString() };
+    if (row.kind === 'review') {
+      reviews = reviews.filter(existing => row.repo?.root ? existing.row.repo?.root !== row.repo.root : existing.uri !== entry.uri);
+      reviews.push(entry);
+    }
+    else current = entry;
+  }
   return {
     show(row, uri) {
-      const entry = { row, uri: uri.toString() };
-      if (row.kind === 'review') {
-        reviews = reviews.filter(existing => row.repo?.root ? existing.row.repo?.root !== row.repo.root : existing.uri !== entry.uri);
-        reviews.push(entry);
-      }
-      else current = entry;
+      select(row, uri);
+      paint();
+    },
+    // Install the whole poll before painting. Clearing an obsolete current row
+    // or updating reviews separately can briefly erase its fresh replacement.
+    reconcile(entries, isLive, replacement) {
+      reviews = entries.map(entry => ({ row: entry.row, uri: entry.uri.toString() }));
+      if (current && !isLive(current.row)) current = undefined;
+      if (replacement) select(replacement.row, replacement.uri);
       paint();
     },
     setReviews(entries) { reviews = entries.map(entry => ({ row: entry.row, uri: entry.uri.toString() })); paint(); },

@@ -257,6 +257,8 @@ function activate(context) {
       if (disposed || ticket !== generation || (automatic && !following)) return;
       editor.revealRange(selection, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
       displayed = row;
+      // Polls install their marker snapshot before navigation starts. This also
+      // covers explicit navigation and is a no-op for already decorated editors.
       markers.show(row, doc.uri);
       errors.delete('preview');
     } catch (error) {
@@ -428,10 +430,13 @@ function activate(context) {
       if (follow) latest = follow;
       // Read expiry must clear the marker without jumping back to an old edit.
       if (follow && follow.kind !== 'review' && !activity.fresh(follow.at) && follow.at) follow = undefined;
-      markers.setReviews(following ? rows.filter(row => row.kind === 'review').map(row => ({ row,
-        uri: vscode.Uri.file(path.join(row.repo.root, row.file.path)) })) : []);
-      markers.refresh(row => rows.some(current => current.repo.root === row.repo.root &&
-        current.kind === row.kind && current.file.path === row.file.path && current.at === row.at && current.id === row.id));
+      const markerEntry = row => ({ row, uri: vscode.Uri.file(path.join(row.repo.root, row.file.path)) });
+      // Reconcile replacement activity and reviews together, before any paint
+      // (including document/visibility events while show() awaits navigation).
+      markers.reconcile(following ? rows.filter(row => row.kind === 'review').map(markerEntry) : [],
+        row => rows.some(current => current.repo.root === row.repo.root && current.kind === row.kind &&
+          current.file.path === row.file.path && current.at === row.at && current.id === row.id),
+        following && follow ? markerEntry(follow) : undefined);
       decisions.update(repos);
       syncReview();
       reportHandoffs();

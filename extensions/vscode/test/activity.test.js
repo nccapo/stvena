@@ -57,15 +57,30 @@ function harness(t) {
     advance: ms => { now += ms; },
     row: (kind = 'read', extra = {}) => ({ repo: { root: '/repo' }, kind, agent: 'codex', source: 'branch',
       at: new Date(now).toISOString(), file: { path: 'a.go', line: 4, ranges: [{ start: 4, end: 8 }] }, ...extra }),
-    // Match the two marker calls made by each extension poll, using new rows.
-    poll(reviews, isLive = () => true) {
-      markers.setReviews(reviews.map(({ row, uri }) => ({ row: structuredClone(row), uri })));
-      markers.refresh(isLive);
+    // Reconcile the complete poll snapshot, using freshly allocated rows.
+    poll(reviews, isLive = () => true, replacement) {
+      markers.reconcile(reviews.map(({ row, uri }) => ({ row: structuredClone(row), uri })), isLive,
+        replacement && { row: structuredClone(replacement.row), uri: replacement.uri });
     },
   };
 }
 
 const sequence = h => h.calls.map(({ kind, options }) => [kind, options.length]);
+
+test('one poll reconciles changed reviews and a fresh replacement before any paint', t => {
+  const h = harness(t);
+  const uri = h.editor.document.uri;
+  h.markers.show(h.row('read', { id: 'old' }), uri);
+  h.poll([{ row: h.row('review'), uri }]);
+  h.advance(15000);
+  const replacement = { row: h.row('read', { id: 'new' }), uri };
+  const reviews = [{ row: h.row('review', { file: { line: 1, ranges: [{ start: 1, end: 2 }] } }), uri }];
+  h.poll(reviews, row => row.id === 'new' || row.kind === 'review', replacement);
+  assert.deepEqual(sequence(h), [['read', 1], ['review', 1], ['review', 1]]);
+  assert.equal(h.editor.paints.get('review')[0].range.start, 0);
+  h.poll(reviews, row => row.id === 'new' || row.kind === 'review');
+  assert.equal(h.calls.length, 3, 'the replacement was not retained as the live current row');
+});
 
 test('equivalent activity polls leave read, edit and persistent review markers untouched', t => {
   const h = harness(t);
