@@ -31,3 +31,4 @@ autonomous_commands:
   - ["go", "build"]
   - ["go", "vet"]
   - ["gofmt"]
+allow_workspace_commands: true
