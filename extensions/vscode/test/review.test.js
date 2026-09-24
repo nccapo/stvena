@@ -21,10 +21,11 @@ function harness(options = {}) {
   let kinds = 0;
   const emitters = []; // lens changes, then badge changes, in creation order
   const edited = []; // onDidChangeTextDocument listeners
+  const saved = []; // onDidSaveTextDocument listeners
   const vscode = {
     workspace: {
       getConfiguration: () => ({ get: (_name, fallback) => options.codeLens === false ? false : fallback }),
-      onDidSaveTextDocument: () => ({ dispose() {} }),
+      onDidSaveTextDocument: listener => { saved.push(listener); return { dispose() {} }; },
       onDidChangeTextDocument: listener => { edited.push(listener); return { dispose() {} }; },
     },
     window: {
@@ -70,7 +71,8 @@ function harness(options = {}) {
   });
   return { ui, vscode, sent, reads, painted, warnings, errors, information, document,
     lensFires: () => emitters[0].fired, badgeFires: () => emitters[1].fired,
-    edit: () => edited.forEach(listener => listener({ document })) };
+    edit: (changed = document) => edited.forEach(listener => listener({ document: changed })),
+    save: (changed = document) => saved.forEach(listener => listener(changed)) };
 }
 
 function repos(hunk = {}, extra = {}) {
@@ -274,40 +276,122 @@ test('explicit apply reports the acknowledged outcome once, even after the queue
 // The extension polls every 700 ms. Telling VS Code that decorations changed
 // makes it drop and re-request them, which shows: the badge and the tab colour
 // blink. A poll that changes nothing must redraw nothing.
-test('an unchanged poll redraws nothing, so badges and lenses do not blink', () => {
+test('heartbeat-only polls redraw nothing, so badges and lenses do not blink', () => {
   const h = harness();
   h.ui.update(repos());
   assert.equal(h.badgeFires().length, 1);
   assert.equal(h.lensFires().length, 1);
-  for (let i = 0; i < 5; i++) h.ui.update(repos());
+  for (let i = 0; i < 5; i++) h.ui.update(repos({}, { updatedAt: new Date(1000 * i).toISOString() }));
   assert.equal(h.badgeFires().length, 1, 'an identical poll re-fired the badges');
   assert.equal(h.lensFires().length, 1, 'an identical poll re-fired the lenses');
 });
 
-test('a changed poll names only the files involved', () => {
+test('document saves and repeated changes refresh markers and lenses without invalidating badges', () => {
   const h = harness();
   h.ui.update(repos());
-  h.ui.update(repos({ reviewed: true }));
-  assert.equal(h.badgeFires().length, 2);
-  const uris = h.badgeFires()[1];
-  assert.ok(Array.isArray(uris), 'a routine change invalidated every decoration');
-  assert.deepEqual(uris.map(uri => uri.fsPath), [path.join('/repo', 'a.go')]);
-  // A file that leaves the review is also named, so its badge is removed.
-  h.ui.update([{ ...repos()[0], review: { ...repos()[0].review, files: [] } }]);
-  assert.deepEqual(h.badgeFires()[2].map(uri => uri.fsPath), [path.join('/repo', 'a.go')]);
+  const unrelated = { ...h.document, uri: at('unrelated.go') };
+  h.save(unrelated);
+  h.edit(unrelated);
+  for (let i = 0; i < 3; i++) {
+    h.document.isDirty = true;
+    h.edit();
+    assert.equal(h.painted.get('type0').length, 0);
+    assert.deepEqual(titles(h), []);
+    h.document.isDirty = false;
+    h.save();
+    assert.equal(h.painted.get('type0').length, 1);
+    assert.equal(titles(h).length, 3);
+  }
+  assert.equal(h.lensFires().length, 8);
+  assert.deepEqual(h.badgeFires(), [[at('a.go')]]);
 });
 
-test('a decision Stvena confirms still redraws, even though its own state is unchanged', async () => {
+function twoFiles(hunk = {}, extra = {}) {
+  const state = repos(hunk, extra);
+  state[0].review.files.push({ path: 'b.go', status: 'M', hunks: [{ id: OTHER, start: 2, end: 3 }] });
+  return state;
+}
+
+test('badge updates name only changed values and removed badges', () => {
   const h = harness();
-  h.ui.update(repos());
-  await h.ui.decide('accept', { root: '/repo', path: 'a.go', hunkId: HUNK, start: 4, end: 9 });
-  const before = h.badgeFires().length;
-  // Stvena now agrees: the optimistic entry is dropped, which changes nothing
-  // visible, but the published state did change, so a redraw is due.
-  h.ui.update(repos({ reviewed: true }, { lastRequest: { id: 'req-1', action: 'accept', status: 'applied', at: new Date().toISOString() } }));
-  assert.equal(h.badgeFires().length, before + 1);
-  h.ui.update(repos({ reviewed: true }, { lastRequest: { id: 'req-1', action: 'accept', status: 'applied', at: new Date().toISOString() } }));
-  assert.equal(h.badgeFires().length, before + 1, 'the settled state kept redrawing');
+  h.ui.update(twoFiles());
+  h.ui.update(twoFiles({ start: 6, end: 10 }));
+  assert.equal(h.lensFires().length, 2, 'changed ranges must still refresh lenses');
+  assert.deepEqual(h.badgeFires(), [[at('a.go'), at('b.go')]]);
+  h.ui.update(twoFiles({ reviewed: true }));
+  assert.deepEqual(h.badgeFires().at(-1), [at('a.go')]);
+  // A file which already has no badge can disappear silently.
+  h.ui.update(reviewOf(twoFiles()[0].review.files.slice(1)));
+  assert.equal(h.badgeFires().length, 2);
+  // A file leaving the review while still badged must be named.
+  h.ui.update(reviewOf([]));
+  assert.deepEqual(h.badgeFires().at(-1), [at('b.go')]);
+  assert.equal(h.vscode.badges.provideFileDecoration(at('b.go')), undefined);
+  h.ui.update(twoFiles());
+  h.ui.clear();
+  assert.deepEqual(h.badgeFires().at(-1), [at('a.go'), at('b.go')]);
+  const cleared = h.badgeFires().length;
+  h.ui.clear();
+  h.ui.update(reviewOf([]));
+  assert.equal(h.badgeFires().length, cleared);
+  h.ui.update(twoFiles());
+  assert.deepEqual(h.badgeFires().at(-1), [at('a.go'), at('b.go')]);
+});
+
+test('badge tooltip count changes still notify above the 9+ badge limit', () => {
+  const h = harness();
+  const state = twoFiles();
+  state[0].review.files[0].hunks = Array.from({ length: 10 }, (_, id) => ({ id: String(id), start: 1, end: 1 }));
+  h.ui.update(state);
+  state[0].review.files[0].hunks.push({ id: '10', start: 2, end: 2 });
+  h.ui.update(state);
+  assert.deepEqual(h.badgeFires().at(-1), [at('a.go')]);
+  assert.equal(h.vscode.badges.provideFileDecoration(at('a.go')).badge, '9+');
+  assert.match(h.vscode.badges.provideFileDecoration(at('a.go')).tooltip, /11 change blocks/);
+});
+
+test('accept and reject badges update immediately and stay stable through acknowledgment', async () => {
+  for (const [action, field] of [['accept', 'reviewed'], ['reject', 'rejected']]) {
+    const h = harness();
+    h.ui.update(twoFiles());
+    const decision = h.ui.decide(action, { root: '/repo', path: 'a.go', hunkId: HUNK, start: 4, end: 9 });
+    assert.equal(h.vscode.badges.provideFileDecoration(at('a.go')), undefined);
+    assert.deepEqual(h.badgeFires(), [[at('a.go'), at('b.go')], [at('a.go')]]);
+    await decision;
+    const lensCount = h.lensFires().length;
+    for (let i = 0; i < 3; i++) h.ui.update(twoFiles());
+    assert.equal(h.lensFires().length, lensCount);
+    for (let i = 0; i < 3; i++) h.ui.update(twoFiles({ [field]: true }, {
+      lastRequest: { id: 'req-1', action, status: 'applied', at: new Date().toISOString() },
+    }));
+    assert.deepEqual(h.badgeFires(), [[at('a.go'), at('b.go')], [at('a.go')]]);
+    assert.equal(h.vscode.badges.provideFileDecoration(at('a.go')), undefined);
+    assert.equal(h.vscode.badges.provideFileDecoration(at('b.go')).badge, '1');
+  }
+});
+
+test('refusal, send failure and timeout restore only the affected badge and its markers', async () => {
+  for (const outcome of ['refused', 'send failure', 'timeout']) {
+    const h = harness({ sendFails: outcome === 'send failure' });
+    h.ui.update(twoFiles());
+    await h.ui.decide('reject', { root: '/repo', path: 'a.go', hunkId: HUNK, start: 4, end: 9 });
+    const lensCount = h.lensFires().length;
+    if (outcome === 'refused') {
+      h.ui.update(twoFiles({}, { lastRequest: { id: 'req-1', status: 'refused', message: 'changed' } }));
+    } else if (outcome === 'timeout') {
+      const original = Date.now;
+      const later = original() + optimisticLifetimeMs + 1;
+      Date.now = () => later;
+      try { h.ui.update(twoFiles()); } finally { Date.now = original; }
+    }
+    if (outcome !== 'send failure') assert.equal(h.lensFires().length, lensCount + 1);
+    assert.equal(h.painted.get('type0').length, 1);
+    assert.equal(titles(h).length, 3);
+    assert.equal(h.vscode.badges.provideFileDecoration(at('a.go')).badge, '1');
+    assert.deepEqual(h.badgeFires(), [[at('a.go'), at('b.go')], [at('a.go')], [at('a.go')]]);
+    h.ui.update(twoFiles());
+    assert.equal(h.badgeFires().length, 3);
+  }
 });
 
 // withBefore publishes one block the way a Stvena that names replaced lines does.

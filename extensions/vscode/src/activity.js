@@ -50,11 +50,11 @@ function createMarkers(vscode, context) {
     context.subscriptions.push(types[kind]);
   }
   let current, reviews = [];
+  const applied = new WeakMap(); // editor -> document version and decoration values
   function paint() {
     for (const editor of vscode.window.visibleTextEditors) {
-      for (const type of Object.values(types)) editor.setDecorations(type, []);
-      if (editor.document.isDirty) continue;
-      for (const entry of [...reviews, current].filter(Boolean)) {
+      const decorations = new Map(Object.values(types).map(type => [type, []]));
+      for (const entry of editor.document.isDirty ? [] : [...reviews, current].filter(Boolean)) {
         if (editor.document.uri.toString() !== entry.uri ||
             (entry.row.kind !== 'review' && !fresh(entry.row.at))) continue;
         const row = entry.row;
@@ -69,8 +69,21 @@ function createMarkers(vscode, context) {
               color: new vscode.ThemeColor(row.kind === 'read' ? 'editorInfo.foreground' :
                 row.kind === 'review' ? 'charts.purple' : 'editorWarning.foreground') } } } : {}) };
         });
-        editor.setDecorations(types[row.kind || 'edit'], options);
+        decorations.set(types[row.kind || 'edit'], options);
       }
+      const previous = applied.get(editor);
+      // VS Code tracks ranges through edits. Reapply after a document change
+      // even when the published coordinates are identical to the last paint.
+      const sameDocument = previous?.document === editor.document && previous?.version === editor.document.version;
+      const values = new Map();
+      for (const [type, options] of decorations) {
+        const value = JSON.stringify(options);
+        if (value !== (previous?.values.get(type) || '[]') || (options.length && !sameDocument)) {
+          editor.setDecorations(type, options);
+        }
+        values.set(type, value);
+      }
+      applied.set(editor, { document: editor.document, version: editor.document.version, values });
     }
   }
   return {

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.1
+
+- Fix remaining tab and Explorer badge flicker by notifying VS Code only when
+  a file's review badge changes, including optimistic accept/reject decisions.
+- Keep activity markers stable across unchanged polls and apply changed ranges
+  without first clearing them. Real edits, dirty buffers and expired activity
+  still refresh the affected markers.
+
 ## 0.5.0
 
 - Review with the keyboard. **⌥Y** / **Alt+Y** accepts and **⌥N** / **Alt+N**
