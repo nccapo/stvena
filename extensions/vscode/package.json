@@ -126,6 +126,10 @@
       {
         "command": "stvena.acceptAll",
         "title": "Stvena: Accept All Remaining Changes…"
+      },
+      {
+        "command": "stvena.rejectAll",
+        "title": "Stvena: Reject All Remaining Changes…"
       }
     ],
     "views": {

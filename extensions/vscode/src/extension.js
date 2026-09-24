@@ -203,6 +203,28 @@ function activate(context) {
     syncReview();
   }
 
+  async function rejectAll() {
+    const owners = repos.filter(repo => bridge.isLive(repo.review))
+      .map(repo => ({ repo, ...decisions.remaining(repo.root) })).filter(owner => owner.changes);
+    if (!owners.length) {
+      hint('nothing left to review');
+      return;
+    }
+    if (owners.some(owner => !bridge.supports(owner.repo.review, 'reject'))) {
+      void vscode.window.showErrorMessage('Stvena: this Stvena version cannot reject changes from the editor. Update the stvena binary.');
+      return;
+    }
+    const changes = owners.reduce((sum, owner) => sum + owner.changes, 0);
+    const files = owners.reduce((sum, owner) => sum + owner.files, 0);
+    const choice = await vscode.window.showWarningMessage(
+      `Reject ${changes} change${changes === 1 ? '' : 's'} in ${files} file${files === 1 ? '' : 's'}?`,
+      { modal: true, detail: 'The rejected lines are reverted when the agent finishes its turn. Changes you have already accepted or rejected are not touched.' },
+      'Reject All');
+    if (choice !== 'Reject All') return;
+    for (const owner of owners) void decisions.rejectAll(owner.repo).finally(syncReview);
+    syncReview();
+  }
+
   function report(key, error) {
     const message = error.message || String(error);
     if (errors.get(key) !== message) output.appendLine(`${key}: ${message}`);
@@ -467,6 +489,7 @@ function activate(context) {
     vscode.commands.registerCommand('stvena.nextChange', () => step(1)),
     vscode.commands.registerCommand('stvena.previousChange', () => step(-1)),
     vscode.commands.registerCommand('stvena.acceptAll', () => acceptAll()),
+    vscode.commands.registerCommand('stvena.rejectAll', () => rejectAll()),
     vscode.commands.registerCommand('stvena.rejectHunkWithReason', async target => {
       const reason = await vscode.window.showInputBox({
         title: 'Reject this change',

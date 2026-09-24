@@ -2,6 +2,8 @@
 
 ## 0.5.1
 
+- **Stvena: Reject All Remaining Changes…** confirms the count before queuing
+  rejections. Rejected lines are reverted when the agent finishes its turn.
 - Fix remaining tab and Explorer badge flicker by notifying VS Code only when
   a file's review badge changes, including optimistic accept/reject decisions.
 - Keep activity markers stable across unchanged polls and apply changed ranges

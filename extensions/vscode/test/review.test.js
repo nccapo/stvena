@@ -7,6 +7,12 @@ const { createReviewUI, optimisticLifetimeMs, hoverLineLimit } = require('../src
 const HUNK = 'a'.repeat(64);
 const OTHER = 'b'.repeat(64);
 
+function deferred() {
+  let resolve;
+  const promise = new Promise(yes => { resolve = yes; });
+  return { promise, resolve };
+}
+
 function harness(options = {}) {
   const painted = new Map();
   const warnings = [];
@@ -59,17 +65,25 @@ function harness(options = {}) {
     OverviewRulerLane: { Left: 1 },
   };
   const sent = [];
+  const held = [];
   const reads = [];
   const ui = createReviewUI(vscode, { subscriptions: [] }, (target, request) => {
     sent.push({ target, request });
-    if (options.sendFails) return Promise.reject(new Error('does not support "reject"'));
+    if (options.sendFails === true || options.sendFails === sent.length) {
+      return Promise.reject(new Error('does not support "reject"'));
+    }
+    if (options.holdSend) {
+      const gate = deferred();
+      held.push(gate);
+      return gate.promise;
+    }
     return Promise.resolve({ id: `req-${sent.length}` });
   }, (repo, oid) => {
     reads.push(oid);
     if (options.readFails && reads.length === 1) return Promise.reject(new Error('object not found'));
     return Promise.resolve(options.before || '');
   });
-  return { ui, vscode, sent, reads, painted, warnings, errors, information, document,
+  return { ui, vscode, sent, held, reads, painted, warnings, errors, information, document,
     lensFires: () => emitters[0].fired, badgeFires: () => emitters[1].fired,
     edit: (changed = document) => edited.forEach(listener => listener({ document: changed })),
     save: (changed = document) => saved.forEach(listener => listener(changed)) };
@@ -588,4 +602,97 @@ test('a refused accept all brings every block back with one warning', async () =
     message: 'New changes arrived before you confirmed', at: new Date().toISOString() } }));
   assert.deepEqual(h.ui.remaining(), { changes: 2, files: 1 });
   assert.deepEqual(h.warnings, ['Stvena: New changes arrived before you confirmed']);
+});
+
+test('reject all sends only undecided hunks and files without hunks', async () => {
+  const h = harness();
+  h.ui.update(reviewOf([
+    { path: 'a.go', status: 'M', hunks: [{ id: HUNK, start: 4, end: 9 },
+      { id: OTHER, start: 20, end: 21, reviewed: true },
+      { id: 'c'.repeat(64), start: 30, end: 31, rejected: true }] },
+    { path: 'logo.png', status: 'M', binary: true },
+    { path: 'done.go', status: 'M', rejected: true, hunks: [{ id: 'd'.repeat(64), start: 1, end: 2 }] },
+  ]));
+  await h.ui.rejectAll({ root: '/repo' });
+  assert.deepEqual(h.sent.map(({ request }) => request), [
+    { action: 'reject', path: 'a.go', line: 4, endLine: 9, hunkId: HUNK },
+    { action: 'reject', path: 'logo.png', line: 1, endLine: 1, hunkId: undefined },
+  ]);
+  assert.deepEqual(h.ui.remaining(), { changes: 0, files: 0 });
+  assert.deepEqual(titles(h), []);
+  assert.deepEqual(h.painted.get('type0'), []);
+  assert.equal(h.vscode.badges.provideFileDecoration(at('a.go')), undefined);
+});
+
+test('reject all sends one file-level request for a new file', async () => {
+  const h = harness();
+  h.ui.update(reviewOf([{ path: 'a.go', status: 'A', hunks: [
+    { id: HUNK, start: 1, end: 2 }, { id: OTHER, start: 5, end: 6 },
+  ] }]));
+  await h.ui.rejectAll({ root: '/repo' });
+  assert.deepEqual(h.sent.map(({ request }) => request), [
+    { action: 'reject', path: 'a.go', line: 1, endLine: 1, hunkId: undefined },
+  ]);
+  assert.deepEqual(h.ui.remaining(), { changes: 0, files: 0 });
+});
+
+test('reject all ignores rows owned by another repo', async () => {
+  const h = harness();
+  const other = { root: '/elsewhere', review: { files: [
+    { path: 'other.go', status: 'M', hunks: [{ id: OTHER, start: 1, end: 2 }] },
+  ] } };
+  h.ui.update([...reviewOf([{ path: 'a.go', status: 'M', hunks: [{ id: HUNK, start: 4, end: 9 }] }]), other]);
+  await h.ui.rejectAll({ root: '/repo' });
+  assert.equal(h.sent.length, 1);
+  assert.equal(h.sent[0].request.path, 'a.go');
+  assert.deepEqual(h.ui.remaining('/elsewhere'), { changes: 1, files: 1 });
+});
+
+test('failed reject all restores every change and reports one error', async () => {
+  const h = harness({ sendFails: true });
+  h.ui.update(reviewOf([{ path: 'a.go', status: 'M', hunks: [
+    { id: HUNK, start: 4, end: 9 }, { id: OTHER, start: 20, end: 21 },
+  ] }]));
+  const before = h.ui.remaining();
+  await h.ui.rejectAll({ root: '/repo' });
+  assert.deepEqual(h.ui.remaining(), before);
+  assert.equal(h.sent.length, 2);
+  assert.deepEqual(h.errors, ['Stvena: 2 changes could not be rejected: does not support "reject"']);
+});
+
+test('reject all restores only the request that failed', async () => {
+  const h = harness({ sendFails: 2 });
+  h.ui.update(reviewOf([{ path: 'a.go', status: 'M', hunks: [
+    { id: HUNK, start: 4, end: 9 }, { id: OTHER, start: 20, end: 21 },
+  ] }]));
+  await h.ui.rejectAll({ root: '/repo' });
+  assert.deepEqual(h.ui.remaining(), { changes: 1, files: 1 });
+  assert.deepEqual(titles(h), ['✓ Accept', '✗ Reject', 'Reject with reason…']);
+  assert.deepEqual(h.errors, ['Stvena: does not support "reject"']);
+});
+
+test('queued rejections stay hidden past the optimistic lifetime and settle', async t => {
+  const h = harness({ holdSend: true });
+  const files = [{ path: 'a.go', status: 'M', hunks: [
+    { id: HUNK, start: 4, end: 9 }, { id: OTHER, start: 20, end: 21 },
+  ] }];
+  h.ui.update(reviewOf(files));
+  const done = h.ui.rejectAll({ root: '/repo' });
+  assert.equal(h.sent.length, 1);
+  assert.deepEqual(h.ui.remaining(), { changes: 0, files: 0 });
+  assert.deepEqual(titles(h), []);
+  assert.deepEqual(h.painted.get('type0'), []);
+  assert.equal(h.vscode.badges.provideFileDecoration(at('a.go')), undefined);
+  const now = Date.now();
+  t.mock.method(Date, 'now', () => now + optimisticLifetimeMs + 1);
+  h.ui.update(reviewOf(files));
+  assert.deepEqual(h.ui.remaining(), { changes: 0, files: 0 });
+  h.held[0].resolve({ id: 'req-1' });
+  await Promise.resolve();
+  assert.equal(h.sent.length, 2);
+  h.held[1].resolve({ id: 'req-2' });
+  await done;
+  h.ui.update(reviewOf([{ ...files[0], hunks: files[0].hunks.map(hunk => ({ ...hunk, rejected: true })) }]));
+  assert.deepEqual(h.ui.remaining(), { changes: 0, files: 0 });
+  assert.deepEqual(titles(h), []);
 });

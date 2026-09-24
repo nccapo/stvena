@@ -133,6 +133,11 @@ confirmation that states the count. If the agent writes anything before Stvena
 receives it, nothing is accepted and the new changes appear for review instead.
 Queued rejections stay rejected.
 
+**Stvena: Reject All Remaining Changes…** rejects everything still waiting for
+review after a confirmation that states how many changes in how many files.
+Rejected lines are reverted when the agent finishes its turn. Changes already
+accepted or rejected are not touched.
+
 ## What a change replaced
 
 The file shows the code as it is now, so hover a block to see what it replaced:
