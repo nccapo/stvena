@@ -589,6 +589,9 @@ func (s *screenState) dispatch(ctx context.Context, events chan<- any, stop <-ch
 	}
 	return false
 }
+
+var clipboardTimeout = 3 * time.Second
+
 func copyText(text string) error {
 	var options [][]string
 	if runtime.GOOS == "darwin" {
@@ -598,7 +601,7 @@ func copyText(text string) error {
 	}
 	for _, args := range options {
 		if path, err := exec.LookPath(args[0]); err == nil {
-			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), clipboardTimeout)
 			defer cancel()
 			cmd := exec.CommandContext(ctx, path, args[1:]...)
 			cmd.Stdin = strings.NewReader(text)

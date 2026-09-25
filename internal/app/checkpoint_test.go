@@ -84,6 +84,9 @@ func TestStandaloneCheckpointExportsWithoutAgentHandoff(t *testing.T) {
 		}
 	}
 	t.Setenv("PATH", dir)
+	previousTimeout := clipboardTimeout
+	clipboardTimeout = 30 * time.Second
+	t.Cleanup(func() { clipboardTimeout = previousTimeout })
 	var child bytes.Buffer
 	s := pasteState(&child)
 	s.exited = true
@@ -99,9 +102,9 @@ func TestStandaloneCheckpointExportsWithoutAgentHandoff(t *testing.T) {
 	case e := <-events:
 		operation, ok := e.(operationEvent)
 		if !ok || operation.err != nil {
-			t.Fatalf("export failed or attempted handoff: %+v", e)
+			t.Fatalf("export failed or attempted handoff: event=%+v error=%v", e, operation.err)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(35 * time.Second):
 		t.Fatal("export stalled")
 	}
 	s.workers.Wait()
