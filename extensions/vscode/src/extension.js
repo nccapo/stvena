@@ -300,7 +300,9 @@ function activate(context) {
     const repo = repos.find(candidate => bridge.isLive(candidate.review) &&
       (owns(candidate.root, editor.document.uri.fsPath) || owns(candidate.realRoot, editor.document.uri.fsPath)));
     if (!repo) throw new Error('No active Stvena review owns this file.');
-    const relative = path.relative(repo.root, editor.document.uri.fsPath).split(path.sep).join('/');
+    // A document may use either spelling of the project root.
+    const base = owns(repo.root, editor.document.uri.fsPath) ? repo.root : repo.realRoot;
+    const relative = path.relative(base, editor.document.uri.fsPath).split(path.sep).join('/');
     const selection = editor.selection;
     const line = selection.start.line + 1;
     let endLine = selection.end.line + 1;

@@ -182,6 +182,22 @@ test('requests are gated on what the running Stvena advertises', async t => {
   await assert.rejects(() => writeRequest(repo, { action: 'accept-all', tree: 'HEAD' }), /review tree/);
 });
 
+test('editor requests still refuse unsafe paths and line ranges', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'stvena-invalid-request-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const repo = { requestPath: path.join(root, 'request.json'), review: {
+    session: 's1', active: true, updatedAt: new Date().toISOString(), features: ['context'],
+  } };
+  for (const change of [
+    { path: '/absolute/a.go' }, { path: 'sub/../a.go' }, { path: 'a\0.go' },
+    { line: 0 }, { endLine: 1 },
+  ]) {
+    await assert.rejects(writeRequest(repo, { action: 'context', path: 'a.go', line: 2, endLine: 3, ...change }),
+      /Invalid Stvena editor request\./);
+  }
+  await assert.rejects(fs.access(repo.requestPath), { code: 'ENOENT' });
+});
+
 // registry builds an isolated Stvena home with the given bridge entries, so a
 // test never reads or writes the developer's real one.
 async function registry(t, entries) {
@@ -202,6 +218,41 @@ function entry(root, dir, extra = {}) {
   return { version: 1, root, realRoot: root, mode: 'shadow', dir, gitDir: path.join(dir, 'shadow.git'),
     updatedAt: new Date().toISOString(), ...extra };
 }
+
+test('registry discovery uses the resolved spelling of a symlinked project', async t => {
+  const base = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'stvena-paths-')));
+  t.after(() => fs.rm(base, { recursive: true, force: true }));
+  const root = path.join(base, 'project'), alias = path.join(base, 'alias'), dir = path.join(base, 'cache');
+  await fs.mkdir(path.join(root, 'pkg'), { recursive: true });
+  try { await fs.symlink(root, alias, 'dir'); } catch (error) { t.skip(`directory symlink unavailable: ${error.code}`); return; }
+  const recorded = entry(alias, dir, { realRoot: root });
+  await registry(t, { 'a.json': recorded });
+  const expected = { root, realRoot: root, mode: recorded.mode, dir: recorded.dir, gitDir: recorded.gitDir,
+    statePath: path.join(dir, 'stvena-live.json'), reviewPath: path.join(dir, 'stvena-review.json'),
+    requestPath: path.join(dir, 'stvena-request.json'), presencePath: path.join(dir, 'stvena-ide.json') };
+  for (const folder of [root, path.join(root, 'pkg')]) {
+    assert.deepEqual(await discover(folder), expected);
+    assert.deepEqual(await lookup(folder), expected);
+  }
+  assert.equal((await discover(alias)).root, alias);
+});
+
+test('registry discovery restores a caller symlink for a real-root entry', async t => {
+  const base = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'stvena-paths-')));
+  t.after(() => fs.rm(base, { recursive: true, force: true }));
+  const root = path.join(base, 'project'), alias = path.join(base, 'alias'), dir = path.join(base, 'cache');
+  await fs.mkdir(path.join(root, 'pkg'), { recursive: true });
+  try { await fs.symlink(root, alias, 'dir'); } catch (error) { t.skip(`directory symlink unavailable: ${error.code}`); return; }
+  const recorded = entry(root, dir);
+  await registry(t, { 'a.json': recorded });
+  const expected = { root: alias, realRoot: root, mode: recorded.mode, dir: recorded.dir, gitDir: recorded.gitDir,
+    statePath: path.join(dir, 'stvena-live.json'), reviewPath: path.join(dir, 'stvena-review.json'),
+    requestPath: path.join(dir, 'stvena-request.json'), presencePath: path.join(dir, 'stvena-ide.json') };
+  for (const folder of [alias, path.join(alias, 'pkg')]) {
+    assert.deepEqual(await discover(folder), expected);
+    assert.deepEqual(await lookup(folder), expected);
+  }
+});
 
 test('finds a project that is not a Git repository, and the folders inside it', async t => {
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'stvena-plain-')));

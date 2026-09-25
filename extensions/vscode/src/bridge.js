@@ -89,6 +89,18 @@ function validEntry(entry) {
     typeof entry.updatedAt === 'string' && Number.isFinite(Date.parse(entry.updatedAt));
 }
 
+// The editor and Stvena can know one project by two path spellings. Give root
+// the spelling the editor uses while keeping the recorded realRoot intact.
+function orient(entry, folder, target) {
+  if (contains(entry.root, folder)) return entry;
+  if (contains(entry.realRoot, folder)) return { ...entry, root: entry.realRoot };
+  if (contains(entry.realRoot, target)) {
+    const rel = path.relative(entry.realRoot, target);
+    return { ...entry, root: path.resolve(folder, ...(rel ? rel.split(path.sep) : []).map(() => '..')) };
+  }
+  return entry;
+}
+
 // fromRegistry returns the entry for the project this folder belongs to. An
 // entry is a map of paths and nothing more: nothing here is ever executed.
 async function fromRegistry(folder) {
@@ -119,7 +131,7 @@ async function fromRegistry(folder) {
     // to the one that actually holds this file.
     if (!best || entry.realRoot.length > best.realRoot.length) best = entry;
   }
-  return best;
+  return best && orient(best, folder, target);
 }
 
 // announce tells Stvena an editor extension is actually watching this

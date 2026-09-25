@@ -19,7 +19,9 @@ function deferred() {
 
 // Run activate() and its real timer-driven poll, with only the bridge's I/O
 // and VS Code host mocked. No copy of polling or marker logic lives here.
-async function harness(t) {
+async function harness(t, options = {}) {
+  const root = options.root || '/repo', documentRoot = options.documentRoot || '/repo';
+  const aPath = options.documentPath || path.join(documentRoot, 'a.go');
   let now = Date.parse('2026-09-24T12:00:00Z'), timer, nextOpen, nextShow;
   t.mock.method(Date, 'now', () => now);
   const events = new Map(), commands = new Map(), calls = [], shown = [], revealed = [], logs = [];
@@ -33,7 +35,7 @@ async function harness(t) {
   const emit = (name, value) => { for (const listener of events.get(name) || []) listener(value); };
   const uri = file => ({ scheme: 'file', fsPath: file, toString: () => `file:${file}` });
   const editors = new Map(['a.go', 'b.go'].map(file => {
-    const document = { uri: uri(path.join('/repo', file)), version: 1, isDirty: false,
+    const document = { uri: uri(file === 'a.go' ? aPath : path.join(documentRoot, file)), version: 1, isDirty: false,
       lineCount: 50, lineAt: () => ({ text: 'source' }) };
     const editor = { document, selection: { isEmpty: true, active: { line: 0 } },
       setDecorations(type, options) {
@@ -46,7 +48,7 @@ async function harness(t) {
   let treeProvider;
   const vscode = {
     workspace: {
-      isTrusted: true, workspaceFolders: [{ name: 'repo', uri: uri('/repo') }],
+      isTrusted: true, workspaceFolders: [{ name: 'repo', uri: uri(root) }],
       getConfiguration: () => ({ get: (_name, fallback) => fallback }),
       onDidChangeTextDocument: on('edit'), onDidSaveTextDocument: on('save'),
       onDidChangeConfiguration: on('config'), onDidChangeWorkspaceFolders: on('folders'),
@@ -71,6 +73,7 @@ async function harness(t) {
       setStatusBarMessage: message => hints.push(message),
       registerFileDecorationProvider: disposable,
       showErrorMessage: message => logs.push(message), showInformationMessage: () => {},
+      showInputBox: async () => 'Why?',
       showWarningMessage: (message, options, ...actions) => {
         warnings.push({ message, options, actions });
         return warningChoice;
@@ -103,13 +106,13 @@ async function harness(t) {
   let review = { session: 's', active: true, sequence: 1, changedAt: new Date(now - 1000).toISOString(), files: [],
     features: ['review', 'context', 'accept', 'unaccept', 'reject', 'undo-reject', 'apply-rejections',
       'next-unreviewed', 'prompt', 'paste', 'accept-all'],
-    focus: { path: 'a.go', line: 12, endLine: 14, source: 'branch' } };
+    ...(documentRoot === root ? { focus: { path: 'a.go', line: 12, endLine: 14, source: 'branch' } } : {}) };
   const publishRead = (id, extra = {}) => {
     state.activity = { session: 's', id, agent: 'codex', path: 'a.go', line: 4, endLine: 8, updatedAt: timestamp(), ...extra };
   };
-  publishRead('read-1');
+  if (documentRoot === root) publishRead('read-1');
   const bridge = { ...realBridge,
-    registryStamp: async () => 'stamp', discover: async () => ({ root: '/repo', dir: '/repo/.git' }),
+    registryStamp: async () => 'stamp', discover: async () => ({ root, realRoot: options.realRoot, dir: path.join(root, '.git') }),
     announce: async () => {},
     readState: async () => structuredClone({ ...state, updatedAt: timestamp() }),
     readReviewState: async () => review && structuredClone({ ...review, updatedAt: timestamp() }),
@@ -133,10 +136,12 @@ async function harness(t) {
   module.exports.activate(context);
   await flush();
   assert.deepEqual(logs, []);
-  assert.deepEqual(calls.map(({ kind, options }) => [kind, options.length]).sort(), [['read', 1], ['review', 1]]);
+  if (documentRoot === root && aPath === path.join(root, 'a.go')) {
+    assert.deepEqual(calls.map(({ kind, options }) => [kind, options.length]).sort(), [['read', 1], ['review', 1]]);
+  }
   calls.length = 0;
   return { calls, shown, revealed, logs, warnings, requests, hints, state, vscode, publishRead, dispose,
-    document: editors.get('/repo/a.go').document,
+    document: editors.get(aPath).document, editor: editors.get(aPath),
     advance: ms => { now += ms; },
     setReview: value => { review = value; },
     review: () => review,
@@ -144,7 +149,7 @@ async function harness(t) {
     hasCommand: name => commands.has(name),
     rows: () => treeProvider.getChildren(),
     holdOpen: () => (nextOpen = deferred()), holdShow: () => (nextShow = deferred()),
-    emit: name => emit(name, name === 'edit' ? { document: editors.get('/repo/a.go').document } : undefined),
+    emit: name => emit(name, name === 'edit' ? { document: editors.get(aPath).document } : undefined),
     command: (name, ...args) => commands.get(name)(...args),
     async poll(expectedLogs = []) { timer(); await flush(); assert.deepEqual(logs, expectedLogs); },
   };
@@ -153,6 +158,63 @@ async function harness(t) {
 const sequence = h => h.calls.map(({ file, kind, options }) => [file, kind, options.length]);
 
 const hunk = (id, start, end, extra = {}) => ({ id: id.repeat(64), start, end, ...extra });
+
+for (const [command, action] of [
+  ['stvena.pasteSelection', 'paste'], ['stvena.askAgent', 'prompt'],
+  ['stvena.addSelectionToContext', 'context'], ['stvena.reviewInStvena', 'review'],
+]) {
+  test(`${command} sends a selection opened through the resolved root`, async t => {
+    const h = await harness(t, { root: '/repo', realRoot: '/private/repo', documentRoot: '/private/repo' });
+    h.editor.selection = { isEmpty: false, active: { line: 3 },
+      start: { line: 3, character: 2 }, end: { line: 5, character: 4 } };
+    h.vscode.window.activeTextEditor = h.editor;
+    await h.command(command);
+    assert.equal(h.requests.length, 1);
+    assert.deepEqual(JSON.parse(JSON.stringify(h.requests[0])), { root: '/repo', request: {
+      action, path: 'a.go', line: 4, endLine: 6,
+      ...(action === 'prompt' ? { text: 'Why?' } : {}),
+    } });
+    assert.deepEqual(h.logs, []);
+  });
+}
+
+test('selection requests keep paths relative to the literal root, including subdirectories', async t => {
+  const h = await harness(t, { root: '/repo', realRoot: '/private/repo' });
+  h.editor.selection = { isEmpty: false, active: { line: 1 },
+    start: { line: 1, character: 1 }, end: { line: 2, character: 3 } };
+  h.vscode.window.activeTextEditor = h.editor;
+  await h.command('stvena.pasteSelection');
+  assert.equal(h.requests[0].request.path, 'a.go');
+  h.document.uri.fsPath = path.join('/repo', 'sub', 'a.go');
+  await h.command('stvena.reviewInStvena');
+  assert.deepEqual(JSON.parse(JSON.stringify(h.requests[1])), { root: '/repo', request: {
+    action: 'review', path: 'sub/a.go', line: 2, endLine: 3,
+  } });
+  assert.deepEqual(h.logs, []);
+});
+
+test('a resolved-root file in a subdirectory keeps its project-relative path', async t => {
+  const h = await harness(t, { root: '/repo', realRoot: '/private/repo', documentRoot: '/private/repo' });
+  h.document.uri.fsPath = path.join('/private/repo', 'sub', 'a.go');
+  h.editor.selection = { isEmpty: false, active: { line: 2 },
+    start: { line: 2, character: 1 }, end: { line: 3, character: 2 } };
+  h.vscode.window.activeTextEditor = h.editor;
+  await h.command('stvena.pasteSelection');
+  assert.equal(h.requests.length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(h.requests[0])), { root: '/repo', request: {
+    action: 'paste', path: 'sub/a.go', line: 3, endLine: 4,
+  } });
+  assert.deepEqual(h.logs, []);
+});
+
+test('selection requests reject a file outside both recorded roots', async t => {
+  const h = await harness(t, { root: '/repo', realRoot: '/private/repo' });
+  h.document.uri.fsPath = '/elsewhere/a.go';
+  h.vscode.window.activeTextEditor = h.editor;
+  await h.command('stvena.reviewInStvena');
+  assert.deepEqual(h.requests, []);
+  assert.deepEqual(h.logs, ['Stvena: No active Stvena review owns this file.']);
+});
 
 test('reject all confirms counts and dismissal sends no request', async t => {
   const h = await harness(t);

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.2
+
+- A project opened through a symlinked path, or under `/tmp` on macOS where
+  the resolved path is `/private/tmp`, no longer reports **Stvena: Invalid Stvena editor request.**
+  Paste to agent, Ask…, Add to context and Review in Stvena now send selections
+  through either path spelling.
+
 ## 0.5.1
 
 - **Stvena: Reject All Remaining Changes…** confirms the count before queuing
