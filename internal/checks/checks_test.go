@@ -252,3 +252,48 @@ func TestCancelledBeforeSnapshotPreparation(t *testing.T) {
 		t.Fatalf("preparation cancellation mislabeled: %+v", r)
 	}
 }
+
+func TestChecksAcceptDanglingLinkThroughInProjectFile(t *testing.T) {
+	root := t.TempDir()
+	if out, err := exec.Command("git", "-C", root, "init").CombinedOutput(); err != nil {
+		t.Fatalf("%s %v", out, err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "target.txt"), []byte("captured\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("target.txt/sub", filepath.Join(root, "link")); err != nil {
+		t.Fatal(err)
+	}
+	s, err := session.Open(repo.Git(root), false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	r := Run(context.Background(), repo.Git(root), s.Baseline, "echo ok")
+	if r.Status != "Passed" || r.ExitCode != 0 || !strings.Contains(r.Output, "ok") || strings.Contains(r.Output, "Prepare snapshot:") || strings.Contains(r.Output, "cannot capture symlink") {
+		t.Fatalf("in-project dangling link rejected: %+v", r)
+	}
+}
+
+func TestChecksRejectDanglingLinkThroughExternalFile(t *testing.T) {
+	root := t.TempDir()
+	if out, err := exec.Command("git", "-C", root, "init").CombinedOutput(); err != nil {
+		t.Fatalf("%s %v", out, err)
+	}
+	outside := filepath.Join(t.TempDir(), "outside.txt")
+	if err := os.WriteFile(outside, []byte("keep\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(outside, "sub"), filepath.Join(root, "link")); err != nil {
+		t.Fatal(err)
+	}
+	s, err := session.Open(repo.Git(root), false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	r := Run(context.Background(), repo.Git(root), s.Baseline, "echo should-not-run")
+	if r.Status != "Failed" || r.ExitCode != -1 || !strings.Contains(r.Output, "snapshot symlink points outside captured code:") {
+		t.Fatalf("external dangling link accepted: %+v", r)
+	}
+}

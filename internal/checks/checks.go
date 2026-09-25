@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -136,7 +137,7 @@ func sourceHashes(root string) (map[string][32]byte, error) {
 		}
 		if d.Type()&os.ModeSymlink != 0 {
 			resolved, e := filepath.EvalSymlinks(path)
-			if os.IsNotExist(e) {
+			if missingPath(e) {
 				target, readErr := os.Readlink(path)
 				if readErr != nil {
 					return fmt.Errorf("cannot capture symlink %s: %w", path, readErr)
@@ -152,7 +153,7 @@ func sourceHashes(root string) (map[string][32]byte, error) {
 						resolved = filepath.Join(resolved, tail)
 						break
 					}
-					if !os.IsNotExist(e) || filepath.Dir(current) == current {
+					if !missingPath(e) || filepath.Dir(current) == current {
 						return fmt.Errorf("cannot capture symlink %s: %w", path, e)
 					}
 					tail = filepath.Join(filepath.Base(current), tail)
@@ -176,6 +177,10 @@ func sourceHashes(root string) (map[string][32]byte, error) {
 		return nil
 	})
 	return hashes, err
+}
+
+func missingPath(err error) bool {
+	return os.IsNotExist(err) || errors.Is(err, syscall.ENOTDIR)
 }
 
 func hashFile(path string) ([32]byte, error) {
