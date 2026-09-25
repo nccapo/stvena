@@ -117,7 +117,7 @@ func TestChecksAcceptInProjectSymlink(t *testing.T) {
 	}
 	defer s.Close()
 	r := Run(context.Background(), repo.Git(root), s.Baseline, "cat link")
-	if r.Status != "Passed" || r.ExitCode != 0 || !strings.Contains(r.Output, "captured content") || strings.Contains(r.Output, "points outside captured code") {
+	if r.Status != "Passed" || r.ExitCode != 0 || !strings.Contains(r.Output, "captured content") || strings.Contains(r.Output, "Prepare snapshot:") || strings.Contains(r.Output, "points outside captured code") {
 		t.Fatalf("in-project symlink rejected: %+v", r)
 	}
 }
@@ -210,6 +210,35 @@ func TestChecksAcceptSymlinkChainAndDirectory(t *testing.T) {
 	r := Run(context.Background(), repo.Git(root), s.Baseline, "cat dirlink/file.txt a; echo changed > dirlink/file.txt")
 	if r.Status != "Passed" || r.ExitCode != 0 || !r.SourceChanged || !strings.Contains(r.Output, "directory content") || !strings.Contains(r.Output, "chain content") {
 		t.Fatalf("symlink chain or directory rejected: %+v", r)
+	}
+}
+
+func TestChecksKeepSourceUnchangedForUntouchedSymlinkTree(t *testing.T) {
+	root := t.TempDir()
+	if out, err := exec.Command("git", "-C", root, "init").CombinedOutput(); err != nil {
+		t.Fatalf("%s %v", out, err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "dir"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	for path, content := range map[string]string{"file.txt": "chain content\n", "dir/file.txt": "directory content\n"} {
+		if err := os.WriteFile(filepath.Join(root, path), []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for link, target := range map[string]string{"dirlink": "dir", "a": "b", "b": "file.txt", "gone": "missing.txt"} {
+		if err := os.Symlink(target, filepath.Join(root, link)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s, err := session.Open(repo.Git(root), false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	r := Run(context.Background(), repo.Git(root), s.Baseline, "cat a dirlink/file.txt")
+	if r.Status != "Passed" || r.ExitCode != 0 || r.SourceChanged || !strings.Contains(r.Output, "chain content") || !strings.Contains(r.Output, "directory content") {
+		t.Fatalf("read-only symlink check changed source: %+v", r)
 	}
 }
 
