@@ -69,6 +69,37 @@ func TestChecksRejectExternalSourceSymlink(t *testing.T) {
 	}
 }
 
+func TestChecksRejectAbsoluteExternalSymlinkReportsPath(t *testing.T) {
+	root := t.TempDir()
+	if out, err := exec.Command("git", "-C", root, "init").CombinedOutput(); err != nil {
+		t.Fatalf("%s %v", out, err)
+	}
+	outside := filepath.Join(t.TempDir(), "live")
+	if err := os.WriteFile(outside, []byte("keep"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	nested := filepath.Join(root, "nested")
+	if err := os.Mkdir(nested, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(nested, "link")); err != nil {
+		t.Fatal(err)
+	}
+	s, err := session.Open(repo.Git(root), false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	r := Run(context.Background(), repo.Git(root), s.Baseline, "echo changed > nested/link")
+	if r.Status != "Failed" || r.ExitCode != -1 || !strings.Contains(r.Output, "snapshot symlink points outside captured code:") || !strings.Contains(r.Output, "nested/link") {
+		t.Fatalf("absolute external symlink was not reported: %+v", r)
+	}
+	data, err := os.ReadFile(outside)
+	if err != nil || string(data) != "keep" {
+		t.Fatalf("outside file changed: %q, %v", data, err)
+	}
+}
+
 func TestChecksAcceptInProjectSymlink(t *testing.T) {
 	root := t.TempDir()
 	if out, err := exec.Command("git", "-C", root, "init").CombinedOutput(); err != nil {
