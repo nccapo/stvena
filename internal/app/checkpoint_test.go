@@ -106,8 +106,18 @@ func TestStandaloneCheckpointExportsWithoutAgentHandoff(t *testing.T) {
 	}
 	s.workers.Wait()
 	got, err := os.ReadFile(output)
-	if err != nil || string(got) != s.review.Checkpoint.Draft || child.Len() != 0 || s.pastePending {
-		t.Fatalf("standalone draft not exported: %v", err)
+	if err != nil {
+		t.Fatalf("standalone draft not exported: read clipboard: %v", err)
+	}
+	want := s.review.Checkpoint.Draft
+	if string(got) != want {
+		t.Fatalf("standalone draft not exported: clipboard got %q (%d bytes), want %q (%d bytes)", got[:min(len(got), 300)], len(got), want[:min(len(want), 300)], len(want))
+	}
+	if child.Len() != 0 {
+		t.Fatalf("standalone draft not exported: agent input %q", child.String())
+	}
+	if s.pastePending {
+		t.Fatalf("standalone draft not exported: pastePending=%t", s.pastePending)
 	}
 }
 
