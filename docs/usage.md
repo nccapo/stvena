@@ -337,8 +337,9 @@ The command runs in a temporary checkout of the selected captured Git tree,
 with your normal user permissions and environment. It is not a sandbox. Ignored
 dependencies, the repository's `.git` directory and submodule contents are not
 copied. Git clean/smudge filters still apply. Dependencies can be installed by
-the supplied command. Snapshots with unresolved or external symlinks are rejected
-for checks so those links cannot silently substitute live source files.
+the supplied command. Symlinks inside the temporary checkout, whether relative,
+absolute, chained or dangling, are used normally. Only links resolving outside
+the checkout are rejected so they cannot silently substitute live source files.
 
 **T** displays the command, captured version, completion time, exit code and
 output. Results are saved, and the header marks them outdated when the current

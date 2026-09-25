@@ -126,16 +126,42 @@ func Run(ctx context.Context, ws repo.Workspace, tree, command string) (r Result
 
 func sourceHashes(root string) (map[string][32]byte, error) {
 	hashes := map[string][32]byte{}
-	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return nil, fmt.Errorf("cannot resolve snapshot root %s: %w", root, err)
+	}
+	err = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if d.Type()&os.ModeSymlink != 0 {
 			resolved, e := filepath.EvalSymlinks(path)
-			if e != nil {
+			if os.IsNotExist(e) {
+				target, readErr := os.Readlink(path)
+				if readErr != nil {
+					return fmt.Errorf("cannot capture symlink %s: %w", path, readErr)
+				}
+				if !filepath.IsAbs(target) {
+					target = filepath.Join(filepath.Dir(path), target)
+				}
+				current := filepath.Clean(target)
+				tail := ""
+				for {
+					resolved, e = filepath.EvalSymlinks(current)
+					if e == nil {
+						resolved = filepath.Join(resolved, tail)
+						break
+					}
+					if !os.IsNotExist(e) || filepath.Dir(current) == current {
+						return fmt.Errorf("cannot capture symlink %s: %w", path, e)
+					}
+					tail = filepath.Join(filepath.Base(current), tail)
+					current = filepath.Dir(current)
+				}
+			} else if e != nil {
 				return fmt.Errorf("cannot capture symlink %s: %w", path, e)
 			}
-			rel, e := filepath.Rel(root, resolved)
+			rel, e := filepath.Rel(realRoot, resolved)
 			if e != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
 				return fmt.Errorf("snapshot symlink points outside captured code: %s", path)
 			}
