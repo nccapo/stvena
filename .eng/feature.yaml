@@ -18,7 +18,10 @@ checks:
     timeout_seconds: 900
   - id: editor
     argv: ["sh", "-c", "cd extensions/vscode && npm test"]
-    required: false
+    # VS Code extension tests (node --test, no dependencies); required so they
+    # count as evidence for extension unit_test criteria.
+    kind: unit
+    required: true
     timeout_seconds: 300
 # TODO(Nicolas): confirm this reason, or replace it with a real `e2e` check.
 e2e_waiver: "No E2E suite yet; go test -race covers CLI/internal behaviour"
